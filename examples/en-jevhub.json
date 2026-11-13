@@ -1,0 +1,29 @@
+{
+  "language": "en",
+  "namespace": "english_demo",
+  "data_dir": ".data/en",
+  "upstream": {
+    "milvus_uri": "http://127.0.0.1:19530",
+    "collection_prefix": "english_demo_v1",
+    "embedding_provider": "openai",
+    "embedding_model": "text-embedding-3-large",
+    "embedding_dimension": 3072,
+    "llm_model": "gpt-6-luna",
+    "reranker_model": "jev-1.13.0",
+    "final_top_k": 10,
+    "use_llm_cache": false
+  },
+  "splitter": {
+    "chunk_size": 1000,
+    "chunk_overlap": 200
+  },
+  "reranker": {
+    "provider": "jev",
+    "service": "jevhub",
+    "model": "jev-1.13.0",
+    "key_env": "JEVHUB_API_KEY",
+    "base_url": "https://api.jevgo.cn/v1",
+    "timeout": 60,
+    "max_concurrency": 2
+  }
+}

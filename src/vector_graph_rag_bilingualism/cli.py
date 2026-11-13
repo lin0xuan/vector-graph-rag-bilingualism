@@ -1,0 +1,159 @@
+"""Small operational CLI; no credentials or network activity on --help."""
+import argparse
+from dataclasses import asdict
+import json
+import os
+from pathlib import Path
+from .chinese import ChinesePipeline
+from .config import ChineseConfig, EnglishConfig, ModelService
+from .english import EnglishUpstreamPipeline
+from .ingestion import ingest_file, ingest_text
+from .models import Passage, canonical, digest
+from .providers import Embeddings, JsonModel, Reranker
+from .storage import SnapshotStore
+
+
+def load_env(path):
+    # Deliberately no shell evaluation or interpolation.
+    for line in Path(path).read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if not separator or not key.isidentifier():
+            raise ValueError("Invalid env-file line")
+        os.environ.setdefault(key, value.strip().strip('"\''))
+
+
+def connect(config, snapshot=None):
+    store = SnapshotStore(config.get("data_dir", ".data"))
+    namespace = config["namespace"]
+    language = config["language"]
+    if language == "en":
+        pipeline = EnglishUpstreamPipeline.connect(store, namespace, EnglishConfig(config["upstream"]), snapshot=snapshot,
+                                                   reranker=config.get("reranker"))
+    elif language == "zh":
+        embedding = config["embedding"]
+        embedder = Embeddings(ModelService(**embedding["service"]), embedding["dimension"])
+        model = JsonModel({k: ModelService(**v) for k, v in config["models"].items()})
+        mirror = None
+        if "milvus" in config:
+            from pymilvus import MilvusClient
+            from .milvus import MilvusMirror
+            mv = config["milvus"]
+            mirror = MilvusMirror(MilvusClient(uri=mv["uri"], token=os.getenv(mv.get("token_env", "VGRAG_MILVUS_TOKEN"), "")))
+        count = len
+        tokenizer_id = "characters-v1"
+        if config.get("tokenizer_file"):
+            from tokenizers import Tokenizer
+            from hashlib import sha256
+            tokenizer_id = "sha256:" + sha256(Path(config["tokenizer_file"]).read_bytes()).hexdigest()
+            tokenizer = Tokenizer.from_file(config["tokenizer_file"])
+            tokenizer.no_truncation()
+            tokenizer.no_padding()
+            count = lambda text: len(tokenizer.encode(text, add_special_tokens=False).ids)
+        reranker = None
+        relation_reranker = None
+        if config.get("reranker"):
+            options = dict(config["reranker"])
+            provider = options.pop("provider", "compatible-http")
+            if provider == "jev":
+                from .jev import JevReranker
+                reranker = relation_reranker = JevReranker(**options)
+            elif provider == "compatible-http":
+                reranker = Reranker(ModelService(**options))
+            else:
+                raise ValueError("Unknown reranker provider")
+        pipeline = ChinesePipeline(store, namespace, embedder, model, config=ChineseConfig(**config.get("query", {})),
+                                   snapshot=snapshot, mirror=mirror, count_tokens=count,
+                                   reranker=reranker, relation_reranker=relation_reranker,
+                                   tokenizer_id=tokenizer_id)
+    else:
+        raise ValueError("language must be zh or en")
+    return pipeline
+
+
+def load_documents(path, config, pipeline):
+    rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+    passages = []
+    for row in rows:
+        if not row.get("source"):
+            raise ValueError("Every document needs a stable source ID")
+        if config["language"] == "zh":
+            options = {**config.get("splitter", {}), "count": pipeline.count_tokens,
+                       "document_id": row.get("document_id"), "title": row.get("title")}
+            if "path" in row:
+                from .ingestion.documents import parse_file
+                from .ingestion import passages_from_blocks
+                passages.extend(passages_from_blocks(row["source"], parse_file(row["path"]), **options))
+            else:
+                passages.extend(ingest_text(row["source"], row["text"], **options))
+        else:
+            from vector_graph_rag.models import Document
+            from vector_graph_rag.loaders.chunker import TextChunker
+            # English input is explicit text; richer file loading remains upstream's concern.
+            if "text" not in row:
+                raise ValueError("English CLI documents require text; use upstream loaders before indexing files")
+            docs = TextChunker(**config.get("splitter", {})).chunk(Document(page_content=row["text"]))
+            for index, doc in enumerate(docs):
+                pid = digest([row["source"], index, doc.page_content])
+                passages.append(Passage(pid, row["source"], doc.page_content, "en",
+                                        row.get("document_id") or row["source"], doc.metadata))
+    return passages
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Independent English and Chinese RAG pipelines")
+    parser.add_argument("--config", required=True, help="JSON profile (credentials referenced by env name)")
+    parser.add_argument("--env-file", help="Optional local environment file; never executed as shell")
+    parser.add_argument("--snapshot", help="Pin an existing snapshot")
+    sub = parser.add_subparsers(dest="command", required=True)
+    index = sub.add_parser("index")
+    index.add_argument("--documents", required=True, help="JSONL source/text or Chinese source/path")
+    for command in ("query", "retrieve"):
+        item = sub.add_parser(command)
+        item.add_argument("question")
+        item.add_argument("--filter", help="Native English Milvus metadata filter")
+    sub.add_parser("verify-index")
+    serve = sub.add_parser("serve")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8088)
+    args = parser.parse_args(argv)
+    pipeline = None
+    try:
+        if args.env_file:
+            load_env(args.env_file)
+        config = json.loads(Path(args.config).read_text())
+        pipeline = connect(config, args.snapshot)
+        if args.command == "serve":
+            import uvicorn
+            from .api import create_app
+            uvicorn.run(create_app({config["namespace"]: {config["language"]: pipeline}}), host=args.host, port=args.port)
+            return
+        if args.command == "index":
+            if args.snapshot:
+                raise ValueError("Do not supply --snapshot when building a new index")
+            passages = load_documents(args.documents, config, pipeline)
+            kwargs = {"ingestion_config": config.get("splitter", {})} if config["language"] == "zh" else {}
+            result = {"snapshot": pipeline.build(passages, **kwargs), "passages": len(passages)}
+        elif args.command == "verify-index":
+            snapshot, records = pipeline._load() if config["language"] == "zh" else pipeline._validate()
+            result = {"snapshot": snapshot, "records": len(records), "status": "verified"}
+        else:
+            if args.filter and config["language"] != "en":
+                raise ValueError("Chinese namespace isolation is supported; raw Milvus filters are English-only")
+            kwargs = {"filter": args.filter} if config["language"] == "en" else {}
+            result = getattr(pipeline, args.command)(args.question, **kwargs).as_dict()
+        print(canonical(result))
+    except (ValueError, KeyError, OSError, RuntimeError) as error:
+        # Provider errors are redacted by provider adapters. Avoid arbitrary upstream exception bodies.
+        parser.exit(2, f"{type(error).__name__}: operation failed; check profile, credentials and index integrity.\n")
+    finally:
+        if pipeline:
+            client = pipeline.client if isinstance(pipeline, EnglishUpstreamPipeline) else getattr(pipeline.mirror, "client", None)
+            if client:
+                client.close()
+
+
+if __name__ == "__main__":
+    main()
