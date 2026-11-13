@@ -1,15 +1,22 @@
+import argparse
 import json,hashlib,re
 from pathlib import Path
 from collections import Counter
 import sys
 root=Path(__file__).resolve().parents[1];sys.path.insert(0,str(root/'src'))
 from vector_graph_rag_bilingualism.storage import SnapshotStore
+
+parser = argparse.ArgumentParser(description="Rebuild the offline CRUD-RAG 100-question review.")
+parser.add_argument("--light-root", type=Path, default=root.parent / "vector-graph-rag-chinese-light",
+                    help="Path to the Chinese Light checkout containing .vgrag-eval")
+history = parser.parse_args().light_root / ".vgrag-eval"
+
 run=root/'.eval/crud-jevhub-100-20261112';out=root/'.eval/reviews/crud100-offline';out.mkdir(parents=True,exist_ok=True)
 input_names=['generations.jsonl','grades.jsonl','model-responses.jsonl','api-usage.jsonl','jev-http.jsonl','questions.jsonl','manifest.json','new-index/catalog.sqlite3']
 initial_hashes={n:hashlib.sha256((run/n).read_bytes()).hexdigest() for n in input_names}
 def rows(n):return [json.loads(l) for l in (run/n).read_text().splitlines()]
 qs={r['id']:r for r in rows('questions.jsonl')};gr={r['id']:r['grade'] for r in rows('grades.jsonl') if r.get('grade')};gen={r['id']:r for r in rows('generations.jsonl')}
-old={r['id']:r for r in map(json.loads,Path('/Users/hootoom002/Documents/vector-graph-rag-chinese-light/.vgrag-eval/crud-500.lqeu5e/results.jsonl').read_text().splitlines()) if r.get('grade')}
+old={r['id']:r for r in map(json.loads,(history/'crud-500.lqeu5e/results.jsonl').read_text().splitlines()) if r.get('grade')}
 m=json.loads((run/'manifest.json').read_text());_,records=SnapshotStore(run/'new-index').load(m['new_snapshot']);ps={r['passage']['id']:r['passage'] for r in records}
 raw=rows('model-responses.jsonl');api=rows('api-usage.jsonl');summary=[]
 for qid,r in gen.items():
@@ -30,7 +37,7 @@ for qid,r in gen.items():
 for s in summary:
  if s['gold']==3 and s['grade']!='correct':print(json.dumps({k:v for k,v in s.items() if k not in ['verification','fallbacks','missing']},ensure_ascii=False))
 
-original_path=Path('/Users/hootoom002/Documents/vector-graph-rag-chinese-light/.vgrag-eval/crud-1000-titled/documents.jsonl')
+original_path=history/'crud-1000-titled/documents.jsonl'
 original={r['source']:r['text'] for r in map(json.loads,original_path.read_text().splitlines())}
 checks=[]
 for item in summary:

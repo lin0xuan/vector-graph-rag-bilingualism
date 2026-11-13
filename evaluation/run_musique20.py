@@ -19,6 +19,22 @@ def save(p,v):
 def append(name,v):
     with LOCK:
         with (OUT/name).open('a') as f: f.write(json.dumps(v,ensure_ascii=False)+'\n');f.flush();os.fsync(f.fileno())
+def restore_snapshot_identity(pipe, store, snapshot):
+    manifest, _ = store.load(snapshot)
+    recorded = manifest['config']
+    relocated_settings = dict(recorded['settings'])
+    if Path(relocated_settings['milvus_uri']).name == 'index.db':
+        relocated_settings['milvus_uri'] = pipe.settings['milvus_uri']
+    old_ner_cache = relocated_settings.get('ner_cache_dir')
+    new_ner_cache = pipe.settings.get('ner_cache_dir')
+    default_suffix = ('evaluation', 'data', 'ner_cache')
+    if (old_ner_cache and new_ner_cache
+            and Path(old_ner_cache).parts[-3:] == Path(new_ner_cache).parts[-3:] == default_suffix):
+        relocated_settings['ner_cache_dir'] = new_ner_cache
+    if {**recorded, 'settings': relocated_settings} != pipe.identity:
+        raise ValueError('English upstream configuration changed; use a matching snapshot')
+    pipe.identity = recorded
+
 def load_keys():
     for line in (ROOT/'.env').read_text().splitlines():
         if '=' not in line or line.strip().startswith('#'):continue
@@ -78,10 +94,12 @@ def main():
     manifest=json.loads((OUT/'manifest.json').read_text())
     assert sha((OUT/'questions.jsonl').read_bytes())==manifest['sample_sha256']
     assert sha((OUT/'documents.jsonl').read_bytes())==manifest['documents_sha256']
-    os.environ['VGRAG_HOME']=str(OUT/'vgrag-home');os.environ['HF_HUB_OFFLINE']='1'
-    (OUT/'vgrag-home').mkdir(exist_ok=True)
-    link=OUT/'vgrag-home/onnx-cache'
-    if not link.exists():link.symlink_to('/tmp/oa-chroma-models',target_is_directory=True)
+    model_home = OUT / 'vgrag-home'
+    model_home.mkdir(exist_ok=True)
+    cache = model_home / 'onnx-cache'
+    if cache.is_symlink() and not cache.exists():
+        cache.unlink()
+    os.environ['VGRAG_HOME'] = str(model_home)
     from vector_graph_rag_bilingualism.english import EnglishUpstreamPipeline
     from vector_graph_rag_bilingualism.config import EnglishConfig
     from vector_graph_rag_bilingualism.storage import SnapshotStore
@@ -120,6 +138,7 @@ def main():
         snapshot=pipe.build(passages,extract_triplets=False,triplets={k:v['triplets'] for k,v in cached.items()})
         save(OUT/'snapshot.json',{'snapshot':snapshot})
     pipe.snapshot=json.loads((OUT/'snapshot.json').read_text())['snapshot']
+    restore_snapshot_identity(pipe, store, pipe.snapshot)
     ner=upstream._ensure_retriever().entity_extractor
     ner.cache=None;ner.use_cache=False
     attach(ner.client,'entities')

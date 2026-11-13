@@ -15,6 +15,8 @@ uv run vgrag-bi --help
 
 只开发中文核心时可省略 `english`。中文默认使用 SQLite 中的精确向量检索进行开发；配置 `milvus` 后使用 Milvus 查询，并校验镜像实际内容。英文存储由上游 Milvus 负责。
 
+复跑英文 MuSiQue 评测时，运行 `uv sync --locked --extra english --extra onnx` 安装 ONNX 依赖。脚本优先使用 `.eval/musique20-20261113/vgrag-home/onnx-cache/` 内的模型，首次缺少模型时会联网下载。中文评测脚本使用 `evaluation` 额外依赖。复核历史评测时，先恢复双语版的 `.eval/` 和轻量版的 `.vgrag-eval/`。将两个仓库克隆到同一父目录即可运行 `uv run python evaluation/review_crud100.py`，也可以通过 `--light-root` 指定轻量版的位置。
+
 ## 配置与使用
 
 ```bash

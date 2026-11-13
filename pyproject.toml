@@ -18,6 +18,8 @@ jev = ["vector-graph-rag @ git+https://github.com/zilliztech/vector-graph-rag.gi
 milvus = ["pymilvus>=2.4,<2.6.10"]
 documents = ["pdfplumber>=0.11,<1", "pypdfium2>=4.30,<6"]
 tokenizer = ["tokenizers>=0.20,<1"]
+onnx = ["vector-graph-rag[onnx] @ git+https://github.com/zilliztech/vector-graph-rag.git@47590ad4eab5838cdcfec94f8a53ebfe70ebe330"]
+evaluation = ["fastembed==0.7.4"]
 test = ["pytest>=8,<10", "reportlab>=4,<5", "python-docx>=1.1,<2"]
 
 [project.scripts]
