@@ -5,11 +5,11 @@ import json
 import os
 from pathlib import Path
 from .chinese import ChinesePipeline
-from .config import ChineseConfig, EnglishConfig, ModelService
+from .config import ChineseConfig, EnglishConfig, EnglishQueryConfig, ModelService
 from .english import EnglishUpstreamPipeline
 from .ingestion import ingest_file, ingest_text
 from .models import Passage, canonical, digest
-from .providers import Embeddings, JsonModel, Reranker
+from .providers import Embeddings, JsonModel, Reranker, SelectiveReranker
 from .storage import SnapshotStore
 
 
@@ -30,7 +30,8 @@ def connect(config, snapshot=None):
     namespace = config["namespace"]
     language = config["language"]
     if language == "en":
-        pipeline = EnglishUpstreamPipeline.connect(store, namespace, EnglishConfig(config["upstream"]), snapshot=snapshot,
+        english = EnglishConfig(config["upstream"], query=EnglishQueryConfig(**config.get("query", {})))
+        pipeline = EnglishUpstreamPipeline.connect(store, namespace, english, snapshot=snapshot,
                                                    reranker=config.get("reranker"))
     elif language == "zh":
         embedding = config["embedding"]
@@ -57,13 +58,27 @@ def connect(config, snapshot=None):
         if config.get("reranker"):
             options = dict(config["reranker"])
             provider = options.pop("provider", "compatible-http")
+            mode = options.pop("mode", "always")
+            min_candidates = options.pop("min_candidates", 48)
+            max_calls_per_query = options.pop("max_calls_per_query", 1)
             if provider == "jev":
                 from .jev import JevReranker
-                reranker = relation_reranker = JevReranker(**options)
+                try:
+                    reranker = relation_reranker = JevReranker(**options)
+                except Exception:
+                    # Jev is optional. Missing credentials or an unavailable
+                    # service must leave the default local/generative path usable.
+                    reranker = relation_reranker = None
             elif provider == "compatible-http":
                 reranker = Reranker(ModelService(**options))
             else:
                 raise ValueError("Unknown reranker provider")
+            if mode == "on-demand":
+                selective = SelectiveReranker(reranker, min_candidates=min_candidates,
+                                              max_calls_per_query=max_calls_per_query)
+                reranker = relation_reranker = selective
+            elif mode != "always":
+                raise ValueError("Unknown reranker mode")
         pipeline = ChinesePipeline(store, namespace, embedder, model, config=ChineseConfig(**config.get("query", {})),
                                    snapshot=snapshot, mirror=mirror, count_tokens=count,
                                    reranker=reranker, relation_reranker=relation_reranker,

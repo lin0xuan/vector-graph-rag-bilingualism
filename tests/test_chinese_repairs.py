@@ -106,6 +106,28 @@ def test_unknown_citation_is_not_fuzzily_repaired(tmp_path):
     assert model.calls['select']>0
 
 
+def test_unconfirmed_slot_cannot_be_marked_complete(tmp_path):
+    p = make(tmp_path)
+    p.model.call = lambda task, data, trace: ({'ok': True, 'issues': [], 'gaps': []}
+                                               if task == 'verify' else
+                                               {'answer': '张某负责审批。[p1]'}
+                                               if task == 'answer' else
+                                               {'relations': []} if task == 'extract' else
+                                               {'entities': []} if task == 'entities' else
+                                               {'slots': [{'id': 's1', 'question': '谁负责审批？'}]} if task == 'plan' else
+                                               {'evidence': []} if task == 'select' else
+                                               {'ids': []})
+    payload = {'slots': [{'id': 's1', 'question': '谁负责审批？'}],
+               'missing_slots': ['s1'],
+               'evidence': [],
+               'passages': [{'id': 'p1', 'text': '张某负责审批。'}]}
+    trace = Trace()
+    issues = p._verify('张某负责审批。[p1]', payload, trace)
+    assert 'unconfirmed_slot:s1' in issues
+    verification = [e for e in trace.events if e['stage'] == 'verification'][-1]
+    assert verification['gaps'] == [{'slot_id': 's1', 'query': '谁负责审批？'}]
+
+
 def test_retrieval_budget_shared_with_verifier_and_no_infinite_loop(tmp_path):
     model=FakeModel(); original=model.call
     def call(task,data,trace):
@@ -187,8 +209,9 @@ def test_failed_post_gap_generation_retains_matching_previous_answer(tmp_path,mo
     monkeypatch.setattr(Retriever,'collect',collect)
     result=make(tmp_path,model).query('谁负责审批，期限多久？')
     assert result.status=='partial' and '张某' in result.answer and 's2' in result.missing_slots
-    assert [p.id for p in result.passages]==['a']
-    assert set(re.findall(r'\[([^\]]+)\]',result.answer))=={'a'}
+    # Ranked full passages survive even if the sentence selector only marks a.
+    assert [p.id for p in result.passages]==['a', 'b']
+    assert set(re.findall(r'\[([^\]]+)\]',result.answer)) <= {'a', 'b'}
     assert any(e['stage']=='answer_fallback' for e in result.trace.events)
     assert any(e['stage']=='answer_attempt' and e['answer']==result.answer for e in result.trace.events)
     assert answered==2

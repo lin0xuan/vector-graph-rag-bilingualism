@@ -5,6 +5,23 @@ from types import SimpleNamespace
 import pytest
 from vector_graph_rag_bilingualism.jev import JevReranker
 from vector_graph_rag_bilingualism.jev_service import resolve_service, model_connection, JevAccounting
+from vector_graph_rag_bilingualism.providers import SelectiveReranker
+
+
+def test_selective_reranker_limits_remote_calls_per_query():
+    class Delegate:
+        def __init__(self): self.calls = []
+        def identity(self): return {"provider": "fixture"}
+        def rank(self, question, texts): self.calls.append(("passages", question)); return list(reversed(range(len(texts))))
+        def rank_relations(self, question, texts): self.calls.append(("relations", question)); return list(reversed(range(len(texts))))
+
+    delegate = Delegate()
+    reranker = SelectiveReranker(delegate, min_candidates=3, max_calls_per_query=1)
+    assert reranker.rank_relations("q", ["a", "b"]) == [0, 1]
+    assert reranker.rank("q", ["a", "b", "c"]) == [2, 1, 0]
+    assert reranker.rank("q", ["a", "b", "c", "d"]) == [0, 1, 2, 3]
+    assert delegate.calls == [("passages", "q")]
+    assert reranker.rank("q2", ["a", "b", "c"]) == [2, 1, 0]
 
 
 def test_defaults_and_no_cross_service_credentials(monkeypatch):

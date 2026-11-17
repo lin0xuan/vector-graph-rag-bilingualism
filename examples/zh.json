@@ -7,7 +7,7 @@
     "service": {"base_url": "http://127.0.0.1:8081/v1", "model": "BAAI/bge-m3", "key_env": "VGRAG_EMBEDDING_KEY"}
   },
   "models": {
-    "default": {"base_url": "http://127.0.0.1:8080/v1", "model": "your-chinese-chat-model", "key_env": "VGRAG_CHAT_KEY"}
+    "default": {"base_url": "https://api.siliconflow.cn/v1", "model": "deepseek-ai/DeepSeek-V4.1-Flash", "key_env": "VGRAG_CHAT_KEY"}
   },
   "query": {"candidate_limit": 100, "per_channel": 30, "max_repairs": 2, "context_budget": 8000},
   "splitter": {"target": 384, "maximum": 512}

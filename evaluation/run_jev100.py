@@ -7,7 +7,6 @@ import argparse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
-import fcntl
 import hashlib
 import json
 import os
@@ -49,8 +48,8 @@ def main():
     if not 1<=args.workers<=4 or args.output.resolve() in (args.previous.resolve(),args.historical.resolve()):
         ap.error('Use a separate output and 1–4 workers')
     args.output.mkdir(parents=True,exist_ok=True)
-    with (args.output/'run.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    from vector_graph_rag_bilingualism.locks import exclusive_lock
+    with exclusive_lock(args.output/'run.lock'):
         execute(args)
 
 

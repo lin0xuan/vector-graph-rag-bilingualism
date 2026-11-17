@@ -11,7 +11,7 @@ sys.path.insert(0,str(ROOT/'src'))
 OUT=ROOT/'.eval/musique20-20261113'
 OUT.mkdir(parents=True,exist_ok=True)
 LOCK=threading.Lock(); CTX=threading.local(); ACTIVE={'id':None}
-CHAT='Qwen/Qwen3.5-35B-A3B'; JUDGE='Qwen/Qwen3.6-35B-A3B'
+CHAT='deepseek-ai/DeepSeek-V4.1-Flash'; JUDGE='deepseek-ai/DeepSeek-V4.1-Flash'
 def sha(v): return hashlib.sha256(v).hexdigest()
 def rows(p): return [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.exists() else []
 def save(p,v):
@@ -57,7 +57,7 @@ def prepare(source):
         questions.append({**q,'hops':int(q['id'][0]),'paragraph_ids':mapping})
     for name,data in [('questions.jsonl',questions),('documents.jsonl',list(docs.values()))]:
         (OUT/name).write_text(''.join(json.dumps(x,ensure_ascii=False)+'\n' for x in data))
-    save(OUT/'manifest.json',{'seed':20261113,'dataset':'MuSiQue-Ans v1.0 dev','source':'https://huggingface.co/datasets/dgslibisey/MuSiQue/resolve/763b65f844118a148e92bb88e7de5cb191b4c5dc/musique_ans_v1.0_dev.jsonl','dataset_sha256':sha(Path(source).read_bytes()),'sample_sha256':sha((OUT/'questions.jsonl').read_bytes()),'documents_sha256':sha((OUT/'documents.jsonl').read_bytes()),'n':20,'hops':{'2':8,'3':6,'4':6},'documents':len(docs),'answer_model':CHAT,'judge_model':JUDGE,'protocol':'Shared union index; native passage-ID filter limits each question to all its supplied candidate paragraphs (including distractors). Initial entity/relation searches use shared index before native filtering. No question decomposition, answer or supporting labels supplied to indexing/retrieval/answer. One passage per original paragraph; no additional splitting. Raw upstream answer scored with official normalization EM/F1; independent semantic judge reported separately.'})
+    save(OUT/'manifest.json',{'seed':20261113,'dataset':'MuSiQue-Ans v1.0 dev','source':'https://huggingface.co/datasets/dgslibisey/MuSiQue/resolve/763b65f844118a148e92bb88e7de5cb191b4c5dc/musique_ans_v1.0_dev.jsonl','dataset_sha256':sha(Path(source).read_bytes()),'sample_sha256':sha((OUT/'questions.jsonl').read_bytes()),'documents_sha256':sha((OUT/'documents.jsonl').read_bytes()),'n':20,'hops':{'2':8,'3':6,'4':6},'documents':len(docs),'answer_model':CHAT,'judge_model':JUDGE,'protocol':'Shared union index; each question searches the complete shared index without a question-level passage-ID filter. No question decomposition, answer or supporting labels supplied to indexing/retrieval/answer. One passage per original paragraph; no additional splitting. Raw upstream answer scored with official normalization EM/F1; independent semantic judge reported separately.'})
     print('PREPARED',len(questions),len(docs),flush=True)
 def attach(client,role):
     original=client.chat.completions.create
@@ -147,9 +147,7 @@ def main():
     for q in questions:
         if q['id'] in done:continue
         ACTIVE['id']=q['id'];started=time.monotonic()
-        allowed=sorted(set(q['paragraph_ids'].values()));flt='id in '+json.dumps(allowed)
-        result=pipe.query(q['question'],filter=flt)
-        assert all(p.id in allowed for p in result.passages)
+        result=pipe.query(q['question'])
         selected={p.id for p in result.passages}
         gold={q['paragraph_ids'][str(p['idx'])] for p in q['paragraphs'] if p['is_supporting']}
         record={'id':q['id'],'hops':q['hops'],'result':result.as_dict(),'gold_answer':q['answer'],'answer_aliases':q['answer_aliases'],'selected_ids':sorted(selected),'gold_ids':sorted(gold),'support_recall':len(selected&gold)/len(gold),'all_support':gold<=selected,'elapsed_s':round(time.monotonic()-started,2)}

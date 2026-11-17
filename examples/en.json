@@ -6,12 +6,13 @@
     "milvus_uri": "http://127.0.0.1:19530",
     "collection_prefix": "english_demo_v1",
     "embedding_provider": "openai",
-    "embedding_model": "text-embedding-3-large",
-    "embedding_dimension": 3072,
-    "llm_model": "gpt-6-luna",
-    "reranker_model": "jev-1.13.0",
+    "embedding_model": "BAAI/bge-m3",
+    "embedding_dimension": 1024,
+    "llm_model": "deepseek-ai/DeepSeek-V4.1-Flash",
+    "openai_base_url": "https://api.siliconflow.cn/v1",
     "final_top_k": 10,
     "use_llm_cache": false
   },
+  "query": {"relation_limit": 64, "dense_top_k": 10, "passage_limit": 16, "batch_chars": 60000, "max_output_tokens": 4096},
   "splitter": {"chunk_size": 1000, "chunk_overlap": 200}
 }

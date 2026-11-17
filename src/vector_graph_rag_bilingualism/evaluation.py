@@ -53,16 +53,9 @@ class EvaluationRunner:
             raise ValueError("Judge identity is required for scored evaluation")
 
     def run(self, questions, *, resume=False, retry_ids=None):
-        import fcntl
-        with (self.directory / ".run.lock").open("a") as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise ValueError("Evaluation directory is already in use") from None
-            try:
-                return self._run_locked(questions, resume=resume, retry_ids=retry_ids)
-            finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+        from .locks import exclusive_lock
+        with exclusive_lock(self.directory / ".run.lock"):
+            return self._run_locked(questions, resume=resume, retry_ids=retry_ids)
 
     def _run_locked(self, questions, *, resume=False, retry_ids=None):
         if len({q["id"] for q in questions}) != len(questions):

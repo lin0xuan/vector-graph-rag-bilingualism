@@ -211,7 +211,7 @@ class ChinesePipeline:
         trace.add("selection", evidence=[asdict(e) for e in evidence])
         return evidence
 
-    def _pack(self, slots, evidence, passages, trace):
+    def _pack(self, slots, evidence, passages, trace, ranked_ids=None):
         by_slot = {s.id: list(dict.fromkeys(e.passage_id for e in evidence if e.slot_id == s.id)) for s in slots}
         selected, used = [], 0
         def add(pid):
@@ -241,6 +241,11 @@ class ChinesePipeline:
                         fallback.append(pid)
         if fallback:
             trace.add("selection_fallback", ids=fallback, confirmed=False)
+        # Keep high-ranked full passages available even when sentence selection
+        # misses a fact. Sentence selection annotates evidence; it does not
+        # decide whether a retrieved passage exists in the answer context.
+        for pid in (ranked_ids or []):
+            add(pid)
         packed = [e for e in evidence if e.passage_id in selected]
         missing = [s.id for s in slots if not any(e.slot_id == s.id for e in packed)]
         trace.add("coverage", selected=selected, missing=missing, context_units=used)
@@ -271,7 +276,8 @@ class ChinesePipeline:
         extra = self._select(question, targets, candidates, passages, trace)
         previous = set((e.passage_id, e.slot_id, e.start, e.end) for e in state["evidence"])
         state["evidence"].extend(e for e in extra if e not in state["evidence"])
-        state["selected"], state["packed"], state["missing"] = self._pack(slots, state["evidence"], passages, trace)
+        state["selected"], state["packed"], state["missing"] = self._pack(
+            slots, state["evidence"], passages, trace, ranked_ids=candidates)
         return any((e.passage_id, e.slot_id, e.start, e.end) not in previous for e in extra)
 
     def _retrieve(self, question):
@@ -289,7 +295,7 @@ class ChinesePipeline:
         ids = retriever.collect([("original", question)] + [(s.id, s.question) for s in slots], entities, self.config, trace)
         evidence = self._select(question, slots, ids, passages, trace)
         all_evidence = evidence
-        selected, evidence, missing = self._pack(slots, evidence, passages, trace)
+        selected, evidence, missing = self._pack(slots, evidence, passages, trace, ranked_ids=ids)
         state = {"retriever": retriever, "passages": passages, "entities": entities, "ids": ids,
                  "seen": set(ids), "rounds": 0, "evidence": all_evidence, "selected": selected,
                  "packed": evidence, "missing": missing}
@@ -323,6 +329,19 @@ class ChinesePipeline:
         citations = re.findall(r"\[([^\[\]]+)\]", answer)
         by_id = {p["id"]: p["text"] for p in payload["passages"]}
         issues = []
+        # A verifier must not turn an unconfirmed retrieval slot into a
+        # complete answer merely because the prose looks plausible.  The
+        # selector is the component that establishes which source sentence
+        # supports each slot; keep unresolved slots visible until a repair
+        # finds evidence for them.
+        evidence_slots = {item.get("slot_id") for item in payload.get("evidence", [])
+                          if isinstance(item, dict) and isinstance(item.get("slot_id"), str)}
+        slot_questions = {item.get("id"): item.get("question", "")
+                          for item in payload.get("slots", []) if isinstance(item, dict)}
+        unresolved = [slot_id for slot_id in payload.get("missing_slots", [])
+                      if slot_id not in evidence_slots]
+        for slot_id in unresolved:
+            issues.append("unconfirmed_slot:" + slot_id)
         def numbers(text):
             values = set()
             for n in re.findall(r"\d+(?:,\d{3})*(?:\.\d+)?%?", text):
@@ -361,6 +380,13 @@ class ChinesePipeline:
                 or not isinstance(g.get("query"), str) or not g["query"].strip() for g in gaps):
             raise ValueError("Invalid verifier gaps")
         gaps = list({g["slot_id"]: {"slot_id": g["slot_id"], "query": g["query"]} for g in gaps}.values())
+        # If the model verifier overlooked an unresolved slot, turn it into a
+        # concrete repair request.  The query stays tied to the original slot
+        # wording so the repair retriever does not invent a target.
+        known_gaps = {g["slot_id"] for g in gaps}
+        for slot_id in unresolved:
+            if slot_id not in known_gaps:
+                gaps.append({"slot_id": slot_id, "query": slot_questions.get(slot_id) or slot_id})
         if (not checked["ok"] or gaps) and not checked["issues"]:
             checked["issues"] = ["verifier_rejected_answer"]
         issues += checked["issues"]

@@ -19,8 +19,8 @@ import threading
 import time
 from urllib.error import HTTPError
 
-CHAT = "Qwen/Qwen3.5-35B-A3B"
-JUDGE = "Qwen/Qwen3.6-35B-A3B"
+CHAT = "deepseek-ai/DeepSeek-V4.1-Flash"
+JUDGE = "deepseek-ai/DeepSeek-V4.1-Flash"
 SEED = 2026111202
 ENDPOINT = "https://api.siliconflow.cn/v1/chat/completions"
 LOCK = threading.Lock()

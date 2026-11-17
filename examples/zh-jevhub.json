@@ -13,7 +13,7 @@
   "models": {
     "default": {
       "base_url": "http://127.0.0.1:8080/v1",
-      "model": "your-chinese-chat-model",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
       "key_env": "VGRAG_CHAT_KEY"
     }
   },

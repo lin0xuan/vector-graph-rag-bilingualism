@@ -18,7 +18,10 @@ def test_complete_with_located_evidence_and_original_query_channel(pipeline):
     result = pipeline.query("谁负责审批，期限多久？")
     assert result.status == "complete"
     assert not result.missing_slots
-    assert {p.id for p in result.passages} == {"a", "b"}
+    # Sentence selection marks evidence; remaining ranked paragraphs may still
+    # enter the answer context when the budget permits.
+    assert [p.id for p in result.passages] == ["a", "b", "c"]
+    assert {e.passage_id for e in result.evidence} == {"a", "b"}
     assert all(e.quote == next(p.text[e.start:e.end] for p in result.passages if p.id == e.passage_id) for e in result.evidence)
     assert any(e.get("slot") == "original" for e in result.trace.events)
 
@@ -37,7 +40,8 @@ def test_entity_failure_is_visible_and_does_not_erase_evidence(pipeline):
     pipeline.model.fail_entities = True
     result = pipeline.query("谁负责审批，期限多久？")
     assert result.status == "partial"
-    assert len(result.passages) == 2
+    assert [p.id for p in result.passages] == ["a", "b", "c"]
+    assert {e.passage_id for e in result.evidence} == {"a", "b"}
     assert any(e["stage"] == "entities" and e["status"] == "failed" for e in result.trace.events)
 
 

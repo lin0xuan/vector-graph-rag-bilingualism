@@ -111,3 +111,35 @@ class Reranker:
         if sorted(indices) != list(range(len(texts))):
             raise ProviderError("Reranker must return each candidate once")
         return indices
+
+
+class SelectiveReranker:
+    """Use a remote reranker only when the candidate pool justifies its cost."""
+    def __init__(self, delegate, *, min_candidates=48, max_calls_per_query=1):
+        if min_candidates < 1 or max_calls_per_query < 1:
+            raise ValueError("Selective reranker limits must be positive")
+        self.delegate = delegate
+        self.min_candidates = min_candidates
+        self.max_calls_per_query = max_calls_per_query
+        self._question = None
+        self._calls = 0
+
+    def identity(self):
+        return {"mode": "on-demand", "delegate": self.delegate.identity(),
+                "min_candidates": self.min_candidates,
+                "max_calls_per_query": self.max_calls_per_query}
+
+    def _use(self, question, texts):
+        if question != self._question:
+            self._question, self._calls = question, 0
+        if len(texts) < self.min_candidates or self._calls >= self.max_calls_per_query:
+            return False
+        self._calls += 1
+        return True
+
+    def rank(self, question, texts):
+        return self.delegate.rank(question, texts) if self._use(question, texts) else list(range(len(texts)))
+
+    def rank_relations(self, question, texts):
+        return (self.delegate.rank_relations(question, texts)
+                if self._use(question, texts) else list(range(len(texts))))
