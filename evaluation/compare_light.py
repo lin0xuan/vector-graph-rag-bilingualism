@@ -427,6 +427,7 @@ def main():
     snapshot, samples = prepare(args, light, legacy, store, embedder, model, config)
     new = ChinesePipeline(store, "crud-ab-20", embedder, model, config=config, snapshot=snapshot,
                           count_tokens=light._count_tokens, tokenizer_id="bge-small-zh-v1.5-frozen-tokenizer")
+    new.sync_milvus()
     try:
         if not args.prepare_only:
             run(args, light, new, samples, client, legacy, store, snapshot)

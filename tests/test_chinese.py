@@ -9,7 +9,7 @@ from helpers import FakeEmbedding, FakeModel, corpus
 @pytest.fixture
 def pipeline(tmp_path):
     model = FakeModel()
-    pipeline = ChinesePipeline(SnapshotStore(tmp_path), "zh-fixture", FakeEmbedding(), model)
+    pipeline = ChinesePipeline(SnapshotStore(tmp_path), "zh-fixture", FakeEmbedding(), model, local_search=True)
     pipeline.build(corpus())
     return pipeline
 
@@ -77,7 +77,7 @@ def test_same_count_mutation_blocked_before_model_calls(pipeline, field):
 def test_two_query_profiles_reuse_identical_index(pipeline):
     snapshot = pipeline.store.current(pipeline.namespace)
     first = pipeline.query("谁负责审批，期限多久？")
-    second = ChinesePipeline(pipeline.store, pipeline.namespace, pipeline.embedder, FakeModel(),
+    second = ChinesePipeline(pipeline.store, pipeline.namespace, pipeline.embedder, FakeModel(), local_search=True,
                              config=ChineseConfig(max_repairs=0, profile="zh_no_repair"), snapshot=snapshot)
     other = second.query("谁负责审批，期限多久？")
     assert first.snapshot_id == other.snapshot_id == snapshot
@@ -96,7 +96,7 @@ def test_embedding_mismatch_blocks_query(pipeline):
 def test_failed_extraction_keeps_original_and_telemetry(tmp_path):
     model = FakeModel()
     model.fail_extract = True
-    pipeline = ChinesePipeline(SnapshotStore(tmp_path), "zh", FakeEmbedding(), model)
+    pipeline = ChinesePipeline(SnapshotStore(tmp_path), "zh", FakeEmbedding(), model, local_search=True)
     sid = pipeline.build(corpus())
     manifest, rows = pipeline.store.load(sid)
     assert len(rows) == 3
@@ -210,7 +210,7 @@ def test_single_and_two_stage_share_graph_snapshot(pipeline):
     two = pipeline.query("谁负责审批，期限多久？")
     assert pipeline.model.calls["relations"] > 0
     single_model = FakeModel()
-    single = ChinesePipeline(pipeline.store, pipeline.namespace, pipeline.embedder, single_model,
+    single = ChinesePipeline(pipeline.store, pipeline.namespace, pipeline.embedder, single_model, local_search=True,
                              config=ChineseConfig(retrieval_mode="single-stage"), snapshot=snapshot)
     one = single.query("谁负责审批，期限多久？")
     assert single_model.calls["relations"] == 0

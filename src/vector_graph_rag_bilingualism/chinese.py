@@ -9,7 +9,15 @@ from .retrieval import Retriever
 
 class ChinesePipeline:
     def __init__(self, store, namespace, embedder, model, *, config=None, snapshot=None,
-                 mirror=None, count_tokens=len, reranker=None, tokenizer_id="characters-v1", relation_reranker=None):
+                 mirror=None, count_tokens=len, reranker=None, tokenizer_id="characters-v1", relation_reranker=None,
+                 local_search=False):
+        if type(local_search) is not bool:
+            raise ValueError("local_search must be a boolean")
+        if local_search and mirror is not None:
+            raise ValueError("local_search cannot be combined with a Milvus mirror")
+        if mirror is None and not local_search:
+            from .milvus import MilvusMirror
+            mirror = MilvusMirror.connect()
         self.store, self.namespace = store, namespace
         self.embedder, self.model = embedder, model
         self.config = config or ChineseConfig()
@@ -78,12 +86,20 @@ class ChinesePipeline:
                                      telemetry=trace.events)
         manifest, records = self.store.load(snapshot)
         if self.mirror:
-            if self.mirror.client.has_collection(self.mirror.name(snapshot)):
-                self.mirror.validate(snapshot, records)
-            else:
-                self.mirror.publish(snapshot, manifest, records)
+            self.mirror.ensure(snapshot, manifest, records)
         if activate:
             self.store.activate(self.namespace, snapshot)
+        return snapshot
+
+    def sync_milvus(self):
+        """Copy an existing snapshot without extraction or embedding calls."""
+        if self.mirror is None:
+            raise ValueError("sync_milvus requires Standalone storage")
+        snapshot = self.snapshot or self.store.current(self.namespace)
+        manifest, records = self.store.load(snapshot)
+        if manifest["namespace"] != self.namespace or manifest["language"] != "zh":
+            raise ValueError("Snapshot namespace/language mismatch")
+        self.mirror.ensure(snapshot, manifest, records)
         return snapshot
 
     def _load(self):
@@ -99,6 +115,7 @@ class ChinesePipeline:
 
     def fingerprint(self):
         return digest({"pipeline": PIPELINE_VERSION, "config": asdict(self.config),
+                       "storage": "milvus-standalone" if self.mirror else "local-exact",
                        "models": self.model.identity(), "embedding": self.embedder.identity(),
                        "reranker": self.reranker.identity() if self.reranker else None,
                        "relation_reranker": self.relation_reranker.identity() if self.relation_reranker else None,

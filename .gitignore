@@ -3,6 +3,9 @@
 !.env.example
 .DS_Store
 .venv/
+.venv-wsl/
+.venv-win/
+work/
 __pycache__/
 *.egg-info/
 .pytest_cache/

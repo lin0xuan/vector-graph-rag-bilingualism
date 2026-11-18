@@ -115,6 +115,7 @@ def execute(args):
     else: shutil.copy2(args.historical/'questions.jsonl',args.output/'questions.jsonl')
     pipeline=ChinesePipeline(store,stored['namespace'],embedder,model,config=config,snapshot=snapshot,
         count_tokens=lambda text:len(tokenizer.encode(text,add_special_tokens=False).ids),tokenizer_id='bge-small-zh-v1.5-frozen-tokenizer')
+    pipeline.sync_milvus()
     latest={r['id']:r for r in base.rows(args.output/'generations.jsonl')}
     grades={r['id']:r for r in base.rows(args.output/'grades.jsonl') if r.get('grade')}
     def work(q):

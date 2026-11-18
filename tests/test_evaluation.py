@@ -6,7 +6,7 @@ from helpers import FakeEmbedding, FakeModel, corpus
 
 def test_scoring_resume_reuses_answer_and_targeted_retry_only_one(tmp_path):
     model = FakeModel()
-    pipeline = ChinesePipeline(SnapshotStore(tmp_path / "index"), "zh", FakeEmbedding(), model)
+    pipeline = ChinesePipeline(SnapshotStore(tmp_path / "index"), "zh", FakeEmbedding(), model, local_search=True)
     snapshot = pipeline.build(corpus())
     calls = []
     fail = [True]
@@ -47,7 +47,7 @@ def test_torn_last_record_is_recoverable_but_committed_corruption_is_not(tmp_pat
 
 def test_manifest_version_change_rejected_before_calls(tmp_path):
     model = FakeModel()
-    pipeline = ChinesePipeline(SnapshotStore(tmp_path / "index"), "zh", FakeEmbedding(), model)
+    pipeline = ChinesePipeline(SnapshotStore(tmp_path / "index"), "zh", FakeEmbedding(), model, local_search=True)
     snapshot = pipeline.build(corpus())
     runner = EvaluationRunner(tmp_path / "eval", pipeline, snapshot)
     questions = [{"id": "one", "question": "谁审批，期限多久？"}]
@@ -61,7 +61,7 @@ def test_manifest_version_change_rejected_before_calls(tmp_path):
 
 def test_source_and_literal_fact_metrics_do_not_enter_model_prompt(tmp_path):
     model = FakeModel()
-    pipeline = ChinesePipeline(SnapshotStore(tmp_path / "index"), "zh", FakeEmbedding(), model)
+    pipeline = ChinesePipeline(SnapshotStore(tmp_path / "index"), "zh", FakeEmbedding(), model, local_search=True)
     snapshot = pipeline.build(corpus())
     runner = EvaluationRunner(tmp_path / "eval", pipeline, snapshot)
     questions = [{"id": "one", "question": "谁审批，期限多久？", "sources": ["policy", "time"],

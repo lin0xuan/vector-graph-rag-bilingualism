@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from .config import EnglishConfig, EnglishQueryConfig, UPSTREAM_COMMIT
 from .english_reranking import GenerativeRanker, VERSION, interleave
-from .milvus import collection_hashes, dump_collection
+from .milvus import collection_hashes, dump_collection, standalone_uri
 from .models import Passage, Result, Trace, digest
 from .storage import IntegrityError
 
@@ -54,6 +54,7 @@ class EnglishUpstreamPipeline:
 
     @classmethod
     def connect(cls, store, namespace, config, *, snapshot=None, reranker=None):
+        uri = standalone_uri(config.settings.get("milvus_uri"))
         verify_upstream_version()
         from vector_graph_rag import VectorGraphRAG
         from vector_graph_rag.config import Settings
@@ -64,6 +65,9 @@ class EnglishUpstreamPipeline:
         # explicit opt-in and must never be enabled merely by constructing the
         # adapter.
         kwargs = {k: v for k, v in config.settings.items() if k != "reranker_model"}
+        kwargs["milvus_uri"] = uri
+        if os.getenv("VGRAG_MILVUS_TOKEN"):
+            kwargs["milvus_token"] = os.environ["VGRAG_MILVUS_TOKEN"]
         # Share the Chinese SiliconFlow-compatible credentials when present.
         # The profile contains only the endpoint; the secret stays in .env.
         if os.getenv("VGRAG_CHAT_KEY") and "openai_api_key" not in kwargs:

@@ -10,7 +10,7 @@ from helpers import FakeEmbedding
 
 
 @pytest.fixture
-def upstream(tmp_path, monkeypatch, request):
+def upstream(tmp_path, monkeypatch, request, milvus_server_uri):
     pytest.importorskip("vector_graph_rag")
     from vector_graph_rag import VectorGraphRAG, Settings
     from vector_graph_rag.llm.extractor import EntityExtractor
@@ -38,7 +38,8 @@ def upstream(tmp_path, monkeypatch, request):
             return embedding.embed([text])[0]
         def embed_batch(self, texts, **kwargs):
             return embedding.embed(texts)
-    settings = Settings(milvus_uri=str(tmp_path / "english.db"), collection_prefix="english_fixture",
+    import uuid
+    settings = Settings(milvus_uri=milvus_server_uri, collection_prefix="test_en_" + uuid.uuid4().hex,
                         openai_api_key="offline-test", jev_api_key="offline-test",
                         reranker_model=None if getattr(request, "param", "jev") == "llm" else "jev-1.13.0",
                         llm_model="fixture-chat", embedding_model="fixture-embedding", embedding_provider="openai",
@@ -59,6 +60,7 @@ def upstream(tmp_path, monkeypatch, request):
     try:
         yield rag
     finally:
+        rag._store.drop_collections()
         rag._store.client.close()
 
 

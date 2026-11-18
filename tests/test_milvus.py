@@ -4,12 +4,15 @@ from vector_graph_rag_bilingualism.milvus import MilvusMirror, dump_collection
 from helpers import FakeEmbedding, FakeModel, corpus
 
 
-def test_actual_milvus_query_and_vector_tamper(tmp_path):
+def test_actual_milvus_query_and_vector_tamper(tmp_path, milvus_server_uri):
     pymilvus = pytest.importorskip("pymilvus")
-    client = pymilvus.MilvusClient(uri=str(tmp_path / "milvus.db"))
+    client = pymilvus.MilvusClient(uri=milvus_server_uri)
+    snapshot = None
     try:
         mirror = MilvusMirror(client)
-        pipeline = ChinesePipeline(SnapshotStore(tmp_path / "catalog"), "zh", FakeEmbedding(), FakeModel(), mirror=mirror)
+        import uuid
+        pipeline = ChinesePipeline(SnapshotStore(tmp_path / "catalog"), "test_" + uuid.uuid4().hex,
+                                   FakeEmbedding(), FakeModel(), mirror=mirror)
         snapshot = pipeline.build(corpus())
         assert pipeline.query("谁负责审批，期限多久？").status == "complete"
         name = mirror.name(snapshot)
@@ -20,4 +23,6 @@ def test_actual_milvus_query_and_vector_tamper(tmp_path):
         with pytest.raises(IntegrityError, match="embedding"):
             pipeline.query("谁负责审批？")
     finally:
+        if snapshot:
+            client.drop_collection(mirror.name(snapshot))
         client.close()

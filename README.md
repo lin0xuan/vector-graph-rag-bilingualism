@@ -6,6 +6,18 @@
 
 2026-11-17 更新：英文 `query()` / `retrieve()` 共用两阶段检索流程，合并图检索和向量检索段落后按原文排序；中文句子级选择用于标注重点证据，预算允许时也保留未被标注的高排名原文段落。英文新策略已经通过离线回归，但尚未完成真实题目复测；下方英文成绩属于修改前版本。
 
+## 为什么单独建设中文链路
+
+Milvus 能存储和检索中文向量，但 RAG 应用还需要在实体抽取、文本处理和证据检索中正确保留中文。一个具体例子是本项目固定依赖的上游 `vector-graph-rag` 提交 `47590ad4eab5838cdcfec94f8a53ebfe70ebe330`：其 [`processing_phrases()`](https://github.com/zilliztech/vector-graph-rag/blob/47590ad4eab5838cdcfec94f8a53ebfe70ebe330/src/vector_graph_rag/llm/extractor.py#L21-L31) 使用以下实体规范化逻辑：
+
+```python
+return re.sub(r"[^A-Za-z0-9 ]", " ", phrase.lower()).strip()
+```
+
+这会将 `北京大学`、`张三` 变成空字符串，将 `华为2024` 变成 `2024`。该函数实际用于 [`EntityExtractor.extract()` 的问题实体返回路径](https://github.com/zilliztech/vector-graph-rag/blob/47590ad4eab5838cdcfec94f8a53ebfe70ebe330/src/vector_graph_rag/llm/extractor.py#L316-L375)，包括缓存和实时模型结果。因此，即使模型正确抽出了中文实体，后处理也会丢失其中文名称，影响后续实体检索与图扩展；更换中文向量模型无法修复这一步的信息丢失。
+
+本项目的 `language: "zh"` 使用独立的 [ChinesePipeline](src/vector_graph_rag_bilingualism/chinese.py)：问题实体校验为非空且出现在问题原文后原样保留；建库关系的主体、客体和引文也须来自原文，不经过上述清洗函数。可选 Jev 仅复用上游评分接口。这是建设并单独验证中文链路的一项具体依据；该示例针对上述固定版本，不代表上游所有检索路径都无法处理中文，也不能单独证明本项目的准确率更高，效果仍需以下评测验证。
+
 ## 最近完成的评测
 
 以下模型回答与评分均使用 DeepSeek V4.1 Flash，均不使用 Jev。正确率表示模型评分器判定为完整正确的比例，不是人工审核结果。
@@ -35,7 +47,16 @@ uv run vgrag-bi --help
 
 Windows 说明：中文核心、HTTP API、文档解析和离线测试可直接在 Windows 运行；评测锁也使用跨平台实现。英文和中文 Jev 额外依赖固定的上游 `vector-graph-rag`，其传递依赖 `milvus-lite` 当前没有 Windows wheel，因此这两项应在 WSL2/Linux 环境安装运行。若必须原生 Windows，需要先维护一个移除或替换该依赖的上游构建，不能只修改本项目的 extra 声明。
 
-只开发中文核心时可省略 `english`。中文默认使用 SQLite 中的精确向量检索进行开发；配置 `milvus` 后使用 Milvus 查询，并校验镜像实际内容。英文存储由上游 Milvus 负责。
+只开发中文核心时可省略 `english`。中英文现在默认共用 **Milvus Standalone**（`http://127.0.0.1:19530`）。中文将段落向量、原文及关系写入 Milvus，并由 Milvus 执行段落向量搜索；英文由固定上游维护实体、关系、段落三个 Collection。SQLite 仍保存不可变快照、校验信息和构建缓存，图扩展仍由应用代码执行。服务不可用时直接报错，不会自动回退到 SQLite 或 Lite。只有离线测试显式使用 `local_search=True`。
+
+启动项目根目录的 `compose.yaml`：
+
+```bash
+docker compose up -d --wait
+docker compose ps
+```
+
+Windows 先启用虚拟机平台、重启并启动 Docker Desktop 的 WSL 2 / Linux 容器引擎。完整部署、旧索引迁移及验证见 [Milvus Standalone 部署](docs/Milvus-Standalone.md)。
 
 复跑英文 MuSiQue 评测时，运行 `uv sync --locked --extra english --extra onnx` 安装 ONNX 依赖。脚本优先使用 `.eval/musique20-20261113/vgrag-home/onnx-cache/` 内的模型，首次缺少模型时会联网下载。中文评测脚本使用 `evaluation` 额外依赖。复核历史评测时，先恢复双语版的 `.eval/` 和轻量版的 `.vgrag-eval/`。将两个仓库克隆到同一父目录即可运行 `uv run python evaluation/review_crud100.py`，也可以通过 `--light-root` 指定轻量版的位置。
 
@@ -45,7 +66,7 @@ Windows 说明：中文核心、HTTP API、文档解析和离线测试可直接�
 cp .env.example .env
 ```
 
-在 `.env` 填写自己的密钥，并复制 `examples/zh.json` 或 `examples/en.json` 为本地配置。聊天模型使用硅基流动地址，密钥为 `VGRAG_CHAT_KEY`；中文示例的向量服务和英文示例的 Milvus 地址指向本机，需自行启动或替换。配置向量模型时保持名称、维度和已有索引一致。中文可在 `models` 中分别配置 `extract / plan / entities / relations / select / answer / verify`，未设置的角色继承 `default`。
+在 `.env` 填写自己的密钥，并复制 `examples/zh.json` 或 `examples/en.json` 为本地配置。聊天模型使用硅基流动地址，密钥为 `VGRAG_CHAT_KEY`；中文示例的向量服务仍需自行启动或替换。中英文共用 `VGRAG_MILVUS_URI` 和 `VGRAG_MILVUS_TOKEN`，其中 URI 环境变量优先于 JSON 配置；未设置时使用配置地址，再默认连接本机 19530。配置向量模型时保持名称、维度和已有索引一致。中文可在 `models` 中分别配置 `extract / plan / entities / relations / select / answer / verify`，未设置的角色继承 `default`。
 
 以下索引和问答命令会访问你配置的模型服务，测试命令则不会：
 
@@ -57,7 +78,7 @@ uv run vgrag-bi --config examples/zh.json --env-file .env verify-index
 
 中文 `query.retrieval_mode` 支持 `single-stage` 和 `two-stage`，切换只影响查询策略，可以共用同一索引。`--snapshot ID` 固定已有快照。更新语料时重新输入该知识库完整文档清单，构建新快照后再原子切换；已完成的抽取/向量任务默认复用持久化检查点。源文件删除通过新清单排除该来源，旧快照仍可追溯。
 
-可选中文 Milvus 配置：
+中文示例已包含以下 Standalone 配置；英文使用 `upstream.milvus_uri`。正常入口拒绝 `.db` 文件地址：
 
 ```json
 {"milvus": {"uri": "http://127.0.0.1:19530", "token_env": "VGRAG_MILVUS_TOKEN"}}
@@ -102,7 +123,7 @@ uv run pytest -q
 python evaluation/history/replay.py
 ```
 
-测试使用合成材料、模拟模型与 Milvus Lite，阻止外部网络模型请求。中文解析回归包括 TXT、Markdown、DOCX 和 PDF；真实扫描 OCR 测试需要额外安装 Tesseract 及语言包，否则显式跳过。
+测试使用合成材料和模拟模型，阻止外部网络模型请求。算法单测显式使用离线本地检索；真实中英文存储集成测试连接 Standalone，需设置 `VGRAG_TEST_MILVUS_URI=http://127.0.0.1:19530`，未设置时跳过。英文集成测试还需要 `english` 额外依赖。测试仅创建和清理随机命名的测试 Collection，不接触已有知识库。中文解析回归包括 TXT、Markdown、DOCX 和 PDF；真实扫描 OCR 测试需要额外安装 Tesseract 及语言包，否则显式跳过。
 
 主要评测入口：
 
@@ -113,7 +134,7 @@ python evaluation/history/replay.py
 | `evaluation/score_english_saved.py` | 对已保存的英文回答做模型语义评分，不重新生成答案 |
 | `evaluation/run_crud_50_nojev.py` | 使用已准备的 CRUD 50 题及冻结索引运行中文评测 |
 
-模型调用脚本会产生接口费用。各脚本通过 `--help` 查看所需路径；中文脚本依赖历史样本、索引和本地模型缓存，不是下载仓库后即可直接运行的独立题库。英文脚本的索引运行目录在 WSL `/tmp/vgrag-nojev/`，备份时需同时保留索引、快照和输出，不能只复制答案文件。新查询策略需要独立评测输出，旧答案缺少匹配的 pipeline 指纹时拒绝混合续跑。
+模型调用脚本会产生接口费用。各脚本通过 `--help` 查看所需路径；中文脚本依赖历史样本、索引和本地模型缓存，不是下载仓库后即可直接运行的独立题库。中文评测在查询前将冻结快照同步到 Standalone，复用已有向量和关系。英文 `run_full_nojev.py` 将快照保存到输出目录的 `standalone-index/snapshots`，向量数据保存在 Standalone 的 Docker 数据卷中，Collection 前缀按输出目录隔离。旧 `/tmp/vgrag-nojev/` 和 Lite 文件不会被自动删除或迁移。`run_musique20.py` 默认使用新的 `.eval/musique20-standalone` 输出，可通过 `VGRAG_MUSIQUE_OUT` 指定。切换后应使用独立评测输出，不把旧本地检索成绩当作 Standalone 成绩；备份需同时保留服务器数据卷、快照和输出。
 
 `EvaluationRunner` 将生成和评分分开落盘：评分失败可以复用已有答案，`resume=True, retry_ids=[...]` 仅重跑指定题，配置变化禁止混合续跑；并发运行同一目录会被阻止，写断的末行可恢复。运行器接受显式注入的评分函数，没有隐式默认付费评测器。
 

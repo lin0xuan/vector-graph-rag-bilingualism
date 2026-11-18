@@ -42,7 +42,7 @@ def test_real_native_protocol_for_both_chinese_stages(tmp_path,monkeypatch):
                 return {'relations':[{'subject':'张某','predicate':'负责','object':'审批','quote':data['text']}]}
             return original(task,data,trace)
         model.call=call
-        p=ChinesePipeline(SnapshotStore(tmp_path),'jev-test',FakeEmbedding(),model,reranker=adapter,relation_reranker=adapter)
+        p=ChinesePipeline(SnapshotStore(tmp_path),'jev-test',FakeEmbedding(),model, local_search=True,reranker=adapter,relation_reranker=adapter)
         sid=p.build(corpus()); result=p.query('谁负责审批，期限多久？')
         assert result.snapshot_id==sid and result.status=='complete'
         assert model.calls['relations']==0

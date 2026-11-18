@@ -86,11 +86,11 @@ def run_dataset(name, out, questions, docs, hippo_triples):
     from vector_graph_rag_bilingualism.models import Passage
     from vector_graph_rag_bilingualism.storage import SnapshotStore
     out.mkdir(parents=True, exist_ok=True)
-    runtime = Path("/tmp/vgrag-nojev") / name
+    runtime = out / "standalone-index"
     runtime.mkdir(parents=True, exist_ok=True)
     os.environ["VGRAG_HOME"] = str(out / "vgrag-home")
     (out / "vgrag-home").mkdir(exist_ok=True)
-    settings = {"milvus_uri": str(runtime / "index.db"), "collection_prefix": f"{name}_nojev_v1" if name == "musique" else "wiki2_nojev_v1", "embedding_provider": "onnx", "embedding_model": "qdrant/bge-large-en-v1.5-onnx", "embedding_dimension": 1024, "llm_model": CHAT, "openai_base_url": "https://api.siliconflow.cn/v1", "final_top_k": 10, "use_llm_cache": False, "batch_size": 16, "milvus_consistency_level": "Bounded", "milvus_index_type": "AUTOINDEX"}
+    settings = {"milvus_uri": os.getenv("VGRAG_MILVUS_URI", "http://127.0.0.1:19530"), "collection_prefix": "en_" + hashlib.sha256(str(out.resolve()).encode()).hexdigest()[:16], "embedding_provider": "onnx", "embedding_model": "qdrant/bge-large-en-v1.5-onnx", "embedding_dimension": 1024, "llm_model": CHAT, "openai_base_url": "https://api.siliconflow.cn/v1", "final_top_k": 10, "use_llm_cache": False, "batch_size": 16, "milvus_consistency_level": "Bounded", "milvus_index_type": "AUTOINDEX"}
     store = SnapshotStore(runtime / "snapshots")
     pipe = EnglishUpstreamPipeline.connect(store, name, EnglishConfig(settings=settings), reranker=None)
     if getattr(pipe, "jev_accounting", None) is not None: raise RuntimeError("Jev unexpectedly enabled")

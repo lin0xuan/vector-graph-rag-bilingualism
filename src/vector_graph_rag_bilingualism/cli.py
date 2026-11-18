@@ -38,11 +38,14 @@ def connect(config, snapshot=None):
         embedder = Embeddings(ModelService(**embedding["service"]), embedding["dimension"])
         model = JsonModel({k: ModelService(**v) for k, v in config["models"].items()})
         mirror = None
-        if "milvus" in config:
-            from pymilvus import MilvusClient
+        local_search = config.get("local_search", False)
+        if type(local_search) is not bool:
+            raise ValueError("local_search must be a boolean")
+        if local_search and "milvus" in config:
+            raise ValueError("local_search cannot be combined with milvus configuration")
+        if not local_search:
             from .milvus import MilvusMirror
-            mv = config["milvus"]
-            mirror = MilvusMirror(MilvusClient(uri=mv["uri"], token=os.getenv(mv.get("token_env", "VGRAG_MILVUS_TOKEN"), "")))
+            mirror = MilvusMirror.connect(config.get("milvus"))
         count = len
         tokenizer_id = "characters-v1"
         if config.get("tokenizer_file"):
@@ -82,7 +85,7 @@ def connect(config, snapshot=None):
         pipeline = ChinesePipeline(store, namespace, embedder, model, config=ChineseConfig(**config.get("query", {})),
                                    snapshot=snapshot, mirror=mirror, count_tokens=count,
                                    reranker=reranker, relation_reranker=relation_reranker,
-                                   tokenizer_id=tokenizer_id)
+                                   tokenizer_id=tokenizer_id, local_search=local_search)
     else:
         raise ValueError("language must be zh or en")
     return pipeline
@@ -130,6 +133,10 @@ def main(argv=None):
         item.add_argument("question")
         item.add_argument("--filter", help="Native English Milvus metadata filter")
     sub.add_parser("verify-index")
+    sub.add_parser("sync-milvus", help="Copy an existing Chinese snapshot to Standalone without model calls")
+    migrate = sub.add_parser("migrate-english", help="Copy an existing English Milvus index without model calls")
+    migrate.add_argument("--source-data-dir", required=True, help="Directory containing the source catalog.sqlite3")
+    migrate.add_argument("--source-uri", required=True, help="Existing source Milvus Lite file (run in WSL/Linux)")
     serve = sub.add_parser("serve")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8088)
@@ -139,6 +146,16 @@ def main(argv=None):
         if args.env_file:
             load_env(args.env_file)
         config = json.loads(Path(args.config).read_text())
+        if args.command == "migrate-english":
+            from .migration import migrate_english
+            result = migrate_english(config, args.source_data_dir, args.source_uri, args.snapshot)
+            print(canonical(result))
+            return
+        if args.command == "sync-milvus":
+            from .migration import sync_chinese
+            result = sync_chinese(config, args.snapshot)
+            print(canonical(result))
+            return
         pipeline = connect(config, args.snapshot)
         if args.command == "serve":
             import uvicorn
@@ -162,7 +179,8 @@ def main(argv=None):
         print(canonical(result))
     except (ValueError, KeyError, OSError, RuntimeError) as error:
         # Provider errors are redacted by provider adapters. Avoid arbitrary upstream exception bodies.
-        parser.exit(2, f"{type(error).__name__}: operation failed; check profile, credentials and index integrity.\n")
+        parser.exit(2, f"{type(error).__name__}: operation failed; check Standalone availability, profile and index integrity. "
+                    "For an old Chinese snapshot, run sync-milvus first.\n")
     finally:
         if pipeline:
             client = pipeline.client if isinstance(pipeline, EnglishUpstreamPipeline) else getattr(pipeline.mirror, "client", None)

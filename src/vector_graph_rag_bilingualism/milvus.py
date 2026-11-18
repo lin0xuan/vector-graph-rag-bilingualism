@@ -1,15 +1,48 @@
-"""Optional Milvus mirror. Full payload/vector checks detect same-count mutations."""
+"""Standalone vector storage. Full payload/vector checks detect mutations."""
 import json
+import os
+from urllib.parse import urlsplit
 from .models import canonical, digest
 from .storage import IntegrityError
 
 
+DEFAULT_MILVUS_URI = "http://127.0.0.1:19530"
+
+
+def standalone_uri(configured=None):
+    """One server endpoint for both languages; never implicitly open Milvus Lite."""
+    uri = os.getenv("VGRAG_MILVUS_URI") or configured or DEFAULT_MILVUS_URI
+    parsed = urlsplit(uri)
+    if (parsed.scheme not in ("http", "https") or not parsed.hostname
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.path not in ("", "/")):
+        raise ValueError("Milvus Standalone requires an http(s) server URI, not a .db file")
+    # Validate malformed ports without including the URI in an error message.
+    try:
+        parsed.port
+    except ValueError:
+        raise ValueError("Invalid Milvus Standalone port") from None
+    return uri.rstrip("/")
+
+
+def connect_standalone(config=None):
+    config = config or {}
+    uri = standalone_uri(config.get("uri"))
+    from pymilvus import MilvusClient
+    try:
+        return MilvusClient(uri=uri, token=os.getenv(config.get("token_env", "VGRAG_MILVUS_TOKEN"), ""),
+                            db_name=config.get("db_name", "default"), timeout=10)
+    except Exception:
+        raise RuntimeError("Milvus Standalone connection failed; start docker compose up -d --wait") from None
+
+
 def dump_collection(client, name):
+    # Integrity checks must see recent writes, even on upstream Bounded collections.
     # Milvus Lite 2.5 can fail while projecting vectors from an empty segment.
-    count = client.query(collection_name=name, filter="", output_fields=["count(*)"])
+    count = client.query(collection_name=name, filter="", output_fields=["count(*)"], consistency_level="Strong")
     if count and count[0].get("count(*)") == 0:
         return []
-    iterator = client.query_iterator(collection_name=name, batch_size=500, output_fields=["*"])
+    iterator = client.query_iterator(collection_name=name, batch_size=500, output_fields=["*"], consistency_level="Strong")
     rows = []
     try:
         while batch := iterator.next():
@@ -40,6 +73,17 @@ class MilvusMirror:
     def name(snapshot):
         return "bi_" + snapshot[:40]
 
+    @classmethod
+    def connect(cls, config=None):
+        return cls(connect_standalone(config))
+
+    def ensure(self, snapshot, manifest, records):
+        """Publish an old snapshot once, or verify an existing copy without replacing it."""
+        if self.client.has_collection(self.name(snapshot)):
+            self.validate(snapshot, records)
+        else:
+            self.publish(snapshot, manifest, records)
+
     def publish(self, snapshot, manifest, records):
         name = self.name(snapshot)
         if self.client.has_collection(name):
@@ -59,6 +103,8 @@ class MilvusMirror:
             raise
 
     def validate(self, snapshot, records):
+        if not self.client.has_collection(self.name(snapshot)):
+            raise IntegrityError("Snapshot missing in Milvus; run sync-milvus before querying")
         rows = dump_collection(self.client, self.name(snapshot))
         expected = {r["passage"]["id"]: r for r in records}
         if len(rows) != len(expected) or {r["id"] for r in rows} != set(expected):

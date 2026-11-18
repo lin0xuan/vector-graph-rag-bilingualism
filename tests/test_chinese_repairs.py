@@ -7,7 +7,7 @@ from vector_graph_rag_bilingualism.retrieval import Retriever
 
 
 def make(tmp_path, model=None, passages=None, **kwargs):
-    pipeline = ChinesePipeline(SnapshotStore(tmp_path), 'repair', FakeEmbedding(), model or FakeModel(), **kwargs)
+    pipeline = ChinesePipeline(SnapshotStore(tmp_path), 'repair', FakeEmbedding(), model or FakeModel(), local_search=True, **kwargs)
     pipeline.build(passages or corpus())
     return pipeline
 

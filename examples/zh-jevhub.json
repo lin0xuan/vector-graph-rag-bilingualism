@@ -37,5 +37,9 @@
     "base_url": "https://api.jevgo.cn/v1",
     "timeout": 60,
     "max_concurrency": 2
+  },
+  "milvus": {
+    "uri": "http://127.0.0.1:19530",
+    "token_env": "VGRAG_MILVUS_TOKEN"
   }
 }

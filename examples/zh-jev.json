@@ -37,5 +37,9 @@
     "timeout": 60,
     "max_concurrency": 3,
     "service": "typesafe"
+  },
+  "milvus": {
+    "uri": "http://127.0.0.1:19530",
+    "token_env": "VGRAG_MILVUS_TOKEN"
   }
 }

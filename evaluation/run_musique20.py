@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
-OUT=ROOT/'.eval/musique20-20261113'
+OUT=Path(os.getenv('VGRAG_MUSIQUE_OUT', str(ROOT/'.eval/musique20-standalone')))
 OUT.mkdir(parents=True,exist_ok=True)
 LOCK=threading.Lock(); CTX=threading.local(); ACTIVE={'id':None}
 CHAT='deepseek-ai/DeepSeek-V4.1-Flash'; JUDGE='deepseek-ai/DeepSeek-V4.1-Flash'
@@ -23,8 +23,6 @@ def restore_snapshot_identity(pipe, store, snapshot):
     manifest, _ = store.load(snapshot)
     recorded = manifest['config']
     relocated_settings = dict(recorded['settings'])
-    if Path(relocated_settings['milvus_uri']).name == 'index.db':
-        relocated_settings['milvus_uri'] = pipe.settings['milvus_uri']
     old_ner_cache = relocated_settings.get('ner_cache_dir')
     new_ner_cache = pipe.settings.get('ner_cache_dir')
     default_suffix = ('evaluation', 'data', 'ner_cache')
@@ -107,7 +105,7 @@ def main():
     from openai import OpenAI
     os.environ['OPENAI_API_KEY']=os.environ['VGRAG_CHAT_KEY']
     model=CHAT
-    settings={'milvus_uri':str(OUT/'index.db'),'collection_prefix':'musique20_v1','embedding_provider':'onnx','embedding_model':'qdrant/bge-large-en-v1.5-onnx','embedding_dimension':1024,'llm_model':model,'openai_base_url':'https://api.siliconflow.cn/v1','final_top_k':10,'use_llm_cache':False,'batch_size':16,'milvus_consistency_level':'Bounded','milvus_index_type':'AUTOINDEX'}
+    settings={'milvus_uri':os.getenv('VGRAG_MILVUS_URI', 'http://127.0.0.1:19530'),'collection_prefix':'musique20_' + sha(str(OUT.resolve()).encode())[:16],'embedding_provider':'onnx','embedding_model':'qdrant/bge-large-en-v1.5-onnx','embedding_dimension':1024,'llm_model':model,'openai_base_url':'https://api.siliconflow.cn/v1','final_top_k':10,'use_llm_cache':False,'batch_size':16,'milvus_consistency_level':'Bounded','milvus_index_type':'AUTOINDEX'}
     store=SnapshotStore(OUT/'snapshots')
     pipe=EnglishUpstreamPipeline.connect(store,'musique20',EnglishConfig(settings=settings),reranker={'provider':'jev','service':'jevhub','model':'jev-1.13.0','max_concurrency':2})
     save(OUT/'settings.json',pipe.settings)
