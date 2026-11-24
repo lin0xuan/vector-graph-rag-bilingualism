@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass, field
 from hashlib import sha256
 import json
 import math
+from threading import Lock
 from uuid import uuid4
 
 
@@ -46,8 +47,13 @@ class Trace:
     id: str = field(default_factory=lambda: uuid4().hex)
     events: list[dict] = field(default_factory=list)
 
+    def __post_init__(self):
+        # Parallel selection and rerank append events from worker threads.
+        object.__setattr__(self, "_lock", Lock())
+
     def add(self, stage, **data):
-        self.events.append({"stage": stage, **data})
+        with self._lock:
+            self.events.append({"stage": stage, **data})
 
 
 @dataclass

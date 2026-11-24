@@ -34,19 +34,38 @@ class JevReranker:
         return sorted(range(len(texts)), key=lambda i: -scores[str(i)])
 
     def rank(self, question, texts):
-        scores = {}
-        def score_batch(indices):
+        batches = []
+        def split(indices):
             try:
                 payload = self.native.build_passage_request(question, [texts[i] for i in indices])
             except ValueError:
                 if len(indices) < 2:
                     raise  # Never silently truncate a single oversized excerpt.
                 middle = len(indices) // 2
-                score_batch(indices[:middle]); score_batch(indices[middle:])
+                split(indices[:middle])
+                split(indices[middle:])
                 return
-            # Private access is isolated here and pinned/tested against upstream.
-            values = self.native._score_payloads([payload])
-            scores.update({index: values[f"d{i}"] for i, index in enumerate(indices)})
+            batches.append((indices, payload))
         for start in range(0, len(texts), 16):
-            score_batch(list(range(start, min(start + 16, len(texts)))))
+            split(list(range(start, min(start + 16, len(texts)))))
+        if not batches:
+            return []
+
+        def score_batch(item):
+            indices, payload = item
+            # One payload per call: excerpt ids restart at d0 in every batch.
+            values = self.native._score_payloads([payload])
+            return {index: values[f"d{i}"] for i, index in enumerate(indices)}
+
+        # The attached accounting semaphore already caps JevHub at its preset.
+        workers = min(len(batches), self.native.settings.jev_max_concurrency)
+        if workers == 1:
+            parts = [score_batch(item) for item in batches]
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                parts = list(pool.map(score_batch, batches))
+        scores = {}
+        for part in parts:
+            scores.update(part)
         return sorted(range(len(texts)), key=lambda i: -scores[i])

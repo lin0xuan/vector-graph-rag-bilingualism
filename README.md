@@ -1,10 +1,10 @@
 # vector-graph-rag-bilingualism
 
-准确率优先的中英文双链路 RAG。英文复用固定版本 Zilliz 的索引、向量检索和图扩展，增加生成式关系与原文段落两阶段重排；中文围绕问点覆盖、可定位证据、定向补查与回答核验编排。
+准确率优先的中英文双链路 RAG。英文 `query()` / `retrieve()` 直接调用固定版本 Zilliz 上游，默认启用 Jev 1.13 的关系和段落两阶段重排；中文围绕问点覆盖、可定位证据、定向补查与回答核验编排，关系和段落评分也默认使用同一版 Jev。
 
-中英文示例默认使用硅基流动 `deepseek-ai/DeepSeek-V4.1-Flash`，均默认不启用 Jev。提供 Python API、CLI、可选 HTTP 服务、不可变索引快照和评测恢复工具。Jev 官方服务和 JevHub 可通过显式配置启用。
+中英文示例默认使用硅基流动 `deepseek-ai/DeepSeek-V4.1-Flash` 和 Jev 1.13。提供 Python API、CLI、可选 HTTP 服务、不可变索引快照和评测恢复工具。Jev 默认连接官方 Typesafe，密钥为 `TYPESAFE_API_KEY`。JevHub 可通过显式配置启用。
 
-2026-11-17 更新：英文 `query()` / `retrieve()` 共用两阶段检索流程，合并图检索和向量检索段落后按原文排序；中文句子级选择用于标注重点证据，预算允许时也保留未被标注的高排名原文段落。英文新策略已经通过离线回归，但尚未完成真实题目复测；下方英文成绩属于修改前版本。
+2026-11-23 更新：英文检索不再使用本项目的生成式重排。未写 `reranker` 时也会把 `reranker_model` 设为 `jev-1.13.0`，并调用上游 `query()` / `retrieve()`。Jev 失败直接抛出。下方英文成绩属于更早的无 Jev 运行，不能算作当前默认链路的成绩。中文句子级选择仍用于标注重点证据，预算允许时也保留未被标注的高排名原文段落。
 
 ## 为什么单独建设中文链路
 
@@ -32,9 +32,11 @@ return re.sub(r"[^A-Za-z0-9 ]", " ", phrase.lower()).strip()
 - 中文为 25 道双文档题、25 道三文档题，使用冻结的 2,309 文档 / 2,993 段落语料。另有 18 题被评分器判为部分正确；按来源文档 ID 计算召回，命中该来源的任意片段即可计入。
 - 英文复用 HippoRAG 预抽取的 OpenIE 三元组；每题搜索该数据集 50 题候选段落的共享并集，无逐题 passage-ID 限制。语料分别为 938 / 415 段，不是官方完整语料。样本按 ID 排序选取，MuSiQue 的这 50 题均为两跳题，不代表全部难度分布。
 - 英文按标准支持段落 ID 计算召回。中英文指标粒度和题库不同，不能直接将百分比差距解释为语言能力差距；英文脚本的 EM/F1 也不是官方评分器口径。
-- 本次新增英文段落重排、宽关系候选和返回校验尚无新成绩，不把旧结果归到新实现。逐题原始记录位于本地 `.eval/`，不随 Git 发布；复核需要另行恢复该目录。
+- 上表英文成绩来自更早的无 Jev 运行。当前默认链路是上游 Jev，尚无按该链路复测的成绩。逐题原始记录位于本地 `.eval/`，不随 Git 发布；复核需要另行恢复该目录。
 
 早期 20 题实验保留在[中文修复后对照](docs/中文20题修复后对照.md)和[Jev 启用前后对照](docs/中文20题Jev启用前后对照.md)，模型、样本和链路版本与上表不同。
+
+2026-11-24 另有一批启用 JevHub 的中文 50 题，样本与上表无 Jev 的 50 题不重叠，不能并进上表。完整正确 36/50（72%），最终来源召回 97.33%，Recall@5 89.33%。过程与成绩见[新抽样评测记录](docs/中文50题新抽样评测记录说明.md)和[新抽样 Jev 评测](docs/中文50题新抽样Jev评测.md)。
 
 ## 安装
 
@@ -84,19 +86,17 @@ uv run vgrag-bi --config examples/zh.json --env-file .env verify-index
 {"milvus": {"uri": "http://127.0.0.1:19530", "token_env": "VGRAG_MILVUS_TOKEN"}}
 ```
 
-中文默认不启用 Jev，使用生成式关系筛选、证据选择和回答核验；只有配置顶层 `reranker` 才会创建远程重排客户端。中文 Jev 支持固定上游 `/systemone` 协议；见 `examples/zh-jev.json` 和[中文修复与 Jev 接入](docs/中文链路修复与Jev接入.md)。需要 `uv sync --extra jev`。显式启用 Jev 而不设置 `mode` 时，不加“每题一次”的限制；中文另有可选 `on-demand` 模式，其候选阈值和调用次数可配置，详见[双服务配置](docs/Jev双服务配置.md)。兼容 `/rerank` 服务也可通过显式 `reranker` 配置使用。
+中文默认启用 Jev 1.13，给关系和段落打分；问点拆分、证据选择、回答和核验仍由聊天模型完成。不写 `reranker` 时，CLI 会使用官方 Typesafe 的 `jev-1.13.0`。缺少密钥会直接报错，不会悄悄改回生成式筛选。要改用 JevHub，复制 `examples/zh-jevhub.json`。旧的无 Jev 评测脚本直接构造管道，不经过这个默认值；CLI 需要关闭时写 `"use_jev": false`。兼容 `/rerank` 服务仍可通过显式 `reranker` 配置使用。可选 `on-demand` 模式见[双服务配置](docs/Jev双服务配置.md)，接入说明见[中文修复与 Jev 接入](docs/中文链路修复与Jev接入.md)。需要 `uv sync --extra jev`。
 
 中文流程为问点拆分 → 原问题与各问点检索 → 关系筛选 → 句子证据标注 → 完整段落装入上下文 → 回答与核验，最多进行配置允许的两轮补查。段落按问点覆盖和检索排名在预算内装入；未找到可定位证据的问点会保留缺口标记，避免仅凭模型判断将其标为完成。
 
 未提供 `tokenizer_file` 时，切分和 `query.context_budget` 明确以字符计数；提供本地 tokenizer JSON 后改用对应 token 计数，并将 tokenizer 文件摘要写入配置指纹。该预算针对证据正文，不代表服务的完整上下文上限。索引不下载模型、不偷偷截断原文。
 
-英文示例使用与中文一致的 `deepseek-ai/DeepSeek-V4.1-Flash` 和硅基流动 `/v1` endpoint，密钥复用 `VGRAG_CHAT_KEY`。默认英文链路也不启用 Jev；只有显式传入 `reranker` 配置才启用，连接或请求失败会回退到上游默认路径。每次重建必须使用新的 `collection_prefix`，防止破坏旧快照。其 `index/query/retrieve` 命令与中文相同，文档示例为 `examples/documents-en.jsonl`。
+英文示例使用与中文一致的 `deepseek-ai/DeepSeek-V4.1-Flash` 和硅基流动 `/v1` endpoint，聊天密钥复用 `VGRAG_CHAT_KEY`。Jev 默认使用官方 Typesafe，密钥为 `TYPESAFE_API_KEY`；`examples/en.json` 已写入 `reranker_model: jev-1.13.0` 和对应 `reranker`。不写 `reranker` 时，连接仍会默认打开同一 Jev 模型。要改用 JevHub，复制 `examples/en-jevhub.json`。缺少 Jev 密钥或请求失败会直接报错，不会改走另一套检索。只有评测脚本显式传入 `use_jev=False` 时，才使用上游自己的非 Jev 重排。每次重建必须使用新的 `collection_prefix`，防止破坏旧快照。其 `index/query/retrieve` 命令与中文相同，文档示例为 `examples/documents-en.jsonl`。英文配置里不要再写 `query` 调参块。
 
-英文默认无 Jev 链路使用两阶段生成式重排：图扩展后由当前配置的模型排序，保留最多 64 条关系；轮流取关系对应段落，与普通向量检索前 10 段交替合并、按文本去重，最多保留 16 段；再让同一模型读取来源标题和完整原文段落，统一排序，取 `final_top_k` 段。`query()` 和 `retrieve()` 使用相同的检索逻辑，只有前者生成答案。这里借鉴 Jev 的候选合并方式，评分器使用普通大模型，不代表复现 Jev 的效果。启用 Jev 时仍走固定上游的 Jev 实现。
+`query()` 和 `retrieve()` 都调用固定上游的同名方法。上游在 Jev 开启时抽取问题实体、检索并扩展关系、用 Jev 保留最多 64 条关系，再把关系段落与向量前 10 段交替合并、去重，最多 16 段后做段落评分，取 `final_top_k`。`query()` 用上游回答器生成答案，`retrieve()` 只返回段落。建库调用上游 `rebuild_documents()`。
 
-可通过英文顶层 `query` 配置 `relation_limit`（64）、`dense_top_k`（10）、`passage_limit`（16）、`batch_chars`（60000 字符）和 `max_output_tokens`（4096）。向量数量和合并上限至少为 `final_top_k`，但语料不足时不保证填满。模型调用不设置空行停止条件；检查结束原因、JSON、编号范围、去重和返回数量，失败重试一次后保留该批输入顺序。空编号列表在有候选时视为格式不符，因为此处要求排序而不是删除候选。大输入按完整候选分批，批次结果交替合并；超预算的单个候选保留原文并跳过该批模型调用，不静默截断。字符预算不是模型 token 上限。
-
-显式 `filter` 同时约束图检索、向量检索和提供给模型的来源信息。Trace 记录两阶段原始模型回复、结束原因、重试/回退和候选顺序，原始回复可能含文档信息，按评测数据保存。查询策略写入 pipeline 指纹；已有索引可继续使用，旧评测结果不能混入新策略续跑。当前没有增加迭代补查或别名合并。
+显式 `filter` 原样传给上游，并同时约束引用映射。查询策略写入 pipeline 指纹；已有索引的配置指纹必须与当前上游设置一致，旧的无 Jev 或生成式重排结果不能混入续跑。当前没有在英文链路上增加迭代补查。
 
 ## HTTP 与 Python 入口
 

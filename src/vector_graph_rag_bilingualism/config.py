@@ -48,24 +48,9 @@ class ChineseConfig:
 
 
 @dataclass(frozen=True)
-class EnglishQueryConfig:
-    relation_limit: int = 64
-    dense_top_k: int = 10
-    passage_limit: int = 16
-    batch_chars: int = 60000
-    max_output_tokens: int = 4096
-
-    def __post_init__(self):
-        for key, value in asdict(self).items():
-            if type(value) is not int or value <= 0:
-                raise ValueError(f"{key} must be a positive integer")
-
-
-@dataclass(frozen=True)
 class EnglishConfig:
     settings: dict = field(default_factory=dict)
     profile: str = "en_upstream_jev_1_13"
-    query: EnglishQueryConfig = field(default_factory=EnglishQueryConfig)
 
     def __post_init__(self):
         forbidden = {k for k in self.settings if any(s in k.lower() for s in ("key", "token", "password"))}

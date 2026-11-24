@@ -45,7 +45,8 @@ def server():
 def test_real_http_providers_and_cli_index_query(tmp_path, server, monkeypatch, capsys):
     monkeypatch.setenv("FIXTURE_KEY", "offline-test-value")
     service = {"base_url": server, "model": "fixture", "key_env": "FIXTURE_KEY"}
-    config = {"language": "zh", "namespace": "cli-demo", "local_search": True, "data_dir": str(tmp_path / "data"),
+    config = {"language": "zh", "namespace": "cli-demo", "local_search": True, "use_jev": False,
+              "data_dir": str(tmp_path / "data"),
               "embedding": {"dimension": 16, "service": service}, "models": {"default": service}}
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config))

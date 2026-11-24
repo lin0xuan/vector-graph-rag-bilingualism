@@ -10,9 +10,14 @@
     "embedding_dimension": 1024,
     "llm_model": "deepseek-ai/DeepSeek-V4.1-Flash",
     "openai_base_url": "https://api.siliconflow.cn/v1",
+    "reranker_model": "jev-1.13.0",
     "final_top_k": 10,
     "use_llm_cache": false
   },
-  "query": {"relation_limit": 64, "dense_top_k": 10, "passage_limit": 16, "batch_chars": 60000, "max_output_tokens": 4096},
+  "reranker": {
+    "provider": "jev",
+    "service": "typesafe",
+    "model": "jev-1.13.0"
+  },
   "splitter": {"chunk_size": 1000, "chunk_overlap": 200}
 }

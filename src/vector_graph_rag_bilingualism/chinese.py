@@ -1,4 +1,5 @@
 """Evidence-first Chinese pipeline with bounded retrieval and answer repair."""
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from decimal import Decimal
 import re
@@ -191,8 +192,10 @@ class ChinesePipeline:
 
         evidence = []
         slot_ids = {s.id for s in slots}
-        for start in range(0, len(ids), self.config.selection_batch):
-            batch = ids[start:start + self.config.selection_batch]
+        batches = [ids[start:start + self.config.selection_batch]
+                   for start in range(0, len(ids), self.config.selection_batch)]
+
+        def select_batch(batch):
             aliases = {f"p{i + 1}": pid for i, pid in enumerate(batch)}
             sentences = {alias: self._sentences(passages[pid].text) for alias, pid in aliases.items()}
             try:
@@ -218,13 +221,27 @@ class ChinesePipeline:
                                 valid.append(ev)
                     except (KeyError, TypeError, ValueError):
                         rejected += 1
-                        trace.add("rejected_evidence", reason="unknown_id_or_sentence")
-                evidence.extend(e for e in valid if e not in evidence)
-                if rejected:
-                    # Invalid references are a technical failure, never confirmed coverage.
-                    trace.add("selection", status="failed", error="InvalidEvidence", ids=batch)
+                return batch, valid, rejected, None
             except Exception as error:
+                return batch, [], 0, error
+
+        if len(batches) > 1:
+            # Batches do not depend on each other. Keep merge order so evidence
+            # and failure events stay identical to the previous serial pass.
+            with ThreadPoolExecutor(max_workers=min(4, len(batches))) as pool:
+                selected_batches = list(pool.map(select_batch, batches))
+        else:
+            selected_batches = [select_batch(batch) for batch in batches]
+        for batch, valid, rejected, error in selected_batches:
+            if error is not None:
                 trace.add("selection", status="failed", error=type(error).__name__, ids=batch)
+                continue
+            evidence.extend(e for e in valid if e not in evidence)
+            for _ in range(rejected):
+                trace.add("rejected_evidence", reason="unknown_id_or_sentence")
+            if rejected:
+                # Invalid references are a technical failure, never confirmed coverage.
+                trace.add("selection", status="failed", error="InvalidEvidence", ids=batch)
         trace.add("selection", evidence=[asdict(e) for e in evidence])
         return evidence
 

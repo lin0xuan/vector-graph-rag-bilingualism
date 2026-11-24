@@ -91,7 +91,9 @@ class RealRequests:
             with self.pace_lock:
                 now = time.monotonic()
                 scheduled = max(now, self.next_at[model])
-                self.next_at[model] = scheduled + max(0.7, estimate * 60 / 70000)
+                # Eval-only start gap. 280k is four times the old 70k budget so
+                # overlapping selection calls are not re-serialized. Not a product limit.
+                self.next_at[model] = scheduled + max(0.2, estimate * 60 / 280000)
             delay = scheduled - time.monotonic()
             if delay > 0:
                 time.sleep(delay)

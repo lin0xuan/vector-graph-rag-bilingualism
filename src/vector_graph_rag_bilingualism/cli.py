@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 from .chinese import ChinesePipeline
-from .config import ChineseConfig, EnglishConfig, EnglishQueryConfig, ModelService
+from .config import ChineseConfig, EnglishConfig, ModelService
 from .english import EnglishUpstreamPipeline
 from .ingestion import ingest_file, ingest_text
 from .models import Passage, canonical, digest
@@ -30,7 +30,9 @@ def connect(config, snapshot=None):
     namespace = config["namespace"]
     language = config["language"]
     if language == "en":
-        english = EnglishConfig(config["upstream"], query=EnglishQueryConfig(**config.get("query", {})))
+        if "query" in config:
+            raise ValueError("English retrieval is the pinned upstream pipeline; remove the query block")
+        english = EnglishConfig(config["upstream"])
         pipeline = EnglishUpstreamPipeline.connect(store, namespace, english, snapshot=snapshot,
                                                    reranker=config.get("reranker"))
     elif language == "zh":
@@ -58,20 +60,22 @@ def connect(config, snapshot=None):
             count = lambda text: len(tokenizer.encode(text, add_special_tokens=False).ids)
         reranker = None
         relation_reranker = None
-        if config.get("reranker"):
-            options = dict(config["reranker"])
+        use_jev = config.get("use_jev", True)
+        if type(use_jev) is not bool:
+            raise ValueError("use_jev must be a boolean")
+        # Jev 1.13 scores relations and passages unless the profile supplies
+        # another reranker or explicitly sets use_jev to false.
+        specified = config["reranker"] if "reranker" in config else (
+            {"provider": "jev", "service": "typesafe", "model": "jev-1.13.0"} if use_jev else None)
+        if specified:
+            options = dict(specified)
             provider = options.pop("provider", "compatible-http")
             mode = options.pop("mode", "always")
             min_candidates = options.pop("min_candidates", 48)
             max_calls_per_query = options.pop("max_calls_per_query", 1)
             if provider == "jev":
                 from .jev import JevReranker
-                try:
-                    reranker = relation_reranker = JevReranker(**options)
-                except Exception:
-                    # Jev is optional. Missing credentials or an unavailable
-                    # service must leave the default local/generative path usable.
-                    reranker = relation_reranker = None
+                reranker = relation_reranker = JevReranker(**options)
             elif provider == "compatible-http":
                 reranker = Reranker(ModelService(**options))
             else:

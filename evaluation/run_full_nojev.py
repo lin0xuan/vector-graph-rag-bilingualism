@@ -92,8 +92,9 @@ def run_dataset(name, out, questions, docs, hippo_triples):
     (out / "vgrag-home").mkdir(exist_ok=True)
     settings = {"milvus_uri": os.getenv("VGRAG_MILVUS_URI", "http://127.0.0.1:19530"), "collection_prefix": "en_" + hashlib.sha256(str(out.resolve()).encode()).hexdigest()[:16], "embedding_provider": "onnx", "embedding_model": "qdrant/bge-large-en-v1.5-onnx", "embedding_dimension": 1024, "llm_model": CHAT, "openai_base_url": "https://api.siliconflow.cn/v1", "final_top_k": 10, "use_llm_cache": False, "batch_size": 16, "milvus_consistency_level": "Bounded", "milvus_index_type": "AUTOINDEX"}
     store = SnapshotStore(runtime / "snapshots")
-    pipe = EnglishUpstreamPipeline.connect(store, name, EnglishConfig(settings=settings), reranker=None)
-    if getattr(pipe, "jev_accounting", None) is not None: raise RuntimeError("Jev unexpectedly enabled")
+    pipe = EnglishUpstreamPipeline.connect(store, name, EnglishConfig(settings=settings), reranker=None, use_jev=False)
+    if pipe.upstream.settings.uses_jev or getattr(pipe, "jev_accounting", None) is not None:
+        raise RuntimeError("Jev unexpectedly enabled")
     fingerprint = pipe.fingerprint()
     saved = read_jsonl(out / "answers.jsonl")
     if any(row.get("pipeline_fingerprint") != fingerprint for row in saved):

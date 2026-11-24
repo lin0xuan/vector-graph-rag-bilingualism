@@ -58,7 +58,11 @@ def test_english_passes_shared_endpoint_and_token_without_lite(monkeypatch):
     pipeline = EnglishUpstreamPipeline.connect(None, 'en', config)
     assert captured['milvus_uri'] == 'http://127.0.0.1:19531'
     assert captured['milvus_token'] == 'fixture-secret'
+    assert captured['reranker_model'] == 'jev-1.13.0'
     assert 'fixture-secret' not in json.dumps(pipeline.identity)
+    captured.clear()
+    EnglishUpstreamPipeline.connect(None, 'en', config, use_jev=False)
+    assert 'reranker_model' not in captured
 
 
 def test_default_chinese_uses_standalone_and_does_not_fallback(tmp_path, monkeypatch):
@@ -83,11 +87,34 @@ def test_cli_defaults_to_server(tmp_path, monkeypatch):
     factory = Mock(return_value=Mock())
     monkeypatch.setattr(MilvusMirror, 'connect', factory)
     service = {'base_url': 'http://localhost:8081/v1', 'model': 'fixture', 'key_env': 'FIXTURE_KEY'}
-    config = {'language': 'zh', 'namespace': 'zh', 'data_dir': str(tmp_path),
+    config = {'language': 'zh', 'namespace': 'zh', 'data_dir': str(tmp_path), 'use_jev': False,
               'embedding': {'dimension': 16, 'service': service}, 'models': {'default': service}}
     result = cli.connect(config)
     assert result.mirror is factory.return_value
+    assert result.reranker is None
     factory.assert_called_once_with(None)
+
+
+def test_chinese_cli_defaults_to_typesafe_jev(tmp_path, monkeypatch):
+    factory = Mock(return_value=Mock())
+    monkeypatch.setattr(MilvusMirror, 'connect', factory)
+    created = {}
+
+    class Marker:
+        def __init__(self, **options):
+            created.update(options)
+
+        def identity(self):
+            return {"provider": "jev"}
+
+    monkeypatch.setattr('vector_graph_rag_bilingualism.jev.JevReranker', Marker)
+    service = {'base_url': 'http://localhost:8081/v1', 'model': 'fixture', 'key_env': 'FIXTURE_KEY'}
+    config = {'language': 'zh', 'namespace': 'zh', 'data_dir': str(tmp_path),
+              'embedding': {'dimension': 16, 'service': service}, 'models': {'default': service}}
+    result = cli.connect(config)
+    assert created == {'service': 'typesafe', 'model': 'jev-1.13.0'}
+    assert result.reranker is result.relation_reranker
+    assert result.config.profile == 'zh_coverage_v2'
 
 
 def test_chinese_sync_has_no_model_dependency_and_reuses_snapshot(tmp_path, monkeypatch, capsys):

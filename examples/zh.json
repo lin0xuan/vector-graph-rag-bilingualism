@@ -21,7 +21,15 @@
     "candidate_limit": 100,
     "per_channel": 30,
     "max_repairs": 2,
-    "context_budget": 8000
+    "context_budget": 8000,
+    "retrieval_mode": "two-stage",
+    "profile": "zh_coverage_jev_v2"
+  },
+  "reranker": {
+    "provider": "jev",
+    "service": "typesafe",
+    "model": "jev-1.13.0",
+    "key_env": "TYPESAFE_API_KEY"
   },
   "splitter": {
     "target": 384,
