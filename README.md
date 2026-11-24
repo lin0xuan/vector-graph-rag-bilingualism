@@ -8,13 +8,13 @@
 
 ## 为什么单独建设中文链路
 
-Milvus 能存储和检索中文向量，但 RAG 应用还需要在实体抽取、文本处理和证据检索中正确保留中文。一个具体例子是本项目固定依赖的上游 `vector-graph-rag` 提交 `47590ad4eab5838cdcfec94f8a53ebfe70ebe330`：其 [`processing_phrases()`](https://github.com/zilliztech/vector-graph-rag/blob/47590ad4eab5838cdcfec94f8a53ebfe70ebe330/src/vector_graph_rag/llm/extractor.py#L21-L31) 使用以下实体规范化逻辑：
+Milvus 能存储和检索中文向量，但 RAG 应用还需要在实体抽取、文本处理和证据检索中正确保留中文。一个具体例子是本项目固定依赖的上游 `vector-graph-rag` 提交 `1c034849fb36a104dadb1ddf967abcfe5bbd99b7`：其 [`processing_phrases()`](https://github.com/zilliztech/vector-graph-rag/blob/1c034849fb36a104dadb1ddf967abcfe5bbd99b7/src/vector_graph_rag/llm/extractor.py#L21-L31) 使用以下实体规范化逻辑：
 
 ```python
 return re.sub(r"[^A-Za-z0-9 ]", " ", phrase.lower()).strip()
 ```
 
-这会将 `北京大学`、`张三` 变成空字符串，将 `华为2024` 变成 `2024`。该函数实际用于 [`EntityExtractor.extract()` 的问题实体返回路径](https://github.com/zilliztech/vector-graph-rag/blob/47590ad4eab5838cdcfec94f8a53ebfe70ebe330/src/vector_graph_rag/llm/extractor.py#L316-L375)，包括缓存和实时模型结果。因此，即使模型正确抽出了中文实体，后处理也会丢失其中文名称，影响后续实体检索与图扩展；更换中文向量模型无法修复这一步的信息丢失。
+这会将 `北京大学`、`张三` 变成空字符串，将 `华为2024` 变成 `2024`。该函数实际用于 [`EntityExtractor.extract()` 的问题实体返回路径](https://github.com/zilliztech/vector-graph-rag/blob/1c034849fb36a104dadb1ddf967abcfe5bbd99b7/src/vector_graph_rag/llm/extractor.py#L316-L375)，包括缓存和实时模型结果。因此，即使模型正确抽出了中文实体，后处理也会丢失其中文名称，影响后续实体检索与图扩展；更换中文向量模型无法修复这一步的信息丢失。
 
 本项目的 `language: "zh"` 使用独立的 [ChinesePipeline](src/vector_graph_rag_bilingualism/chinese.py)：问题实体校验为非空且出现在问题原文后原样保留；建库关系的主体、客体和引文也须来自原文，不经过上述清洗函数。可选 Jev 仅复用上游评分接口。这是建设并单独验证中文链路的一项具体依据；该示例针对上述固定版本，不代表上游所有检索路径都无法处理中文，也不能单独证明本项目的准确率更高，效果仍需以下评测验证。
 
@@ -40,7 +40,7 @@ return re.sub(r"[^A-Za-z0-9 ]", " ", phrase.lower()).strip()
 
 ## 安装
 
-Python 3.11+，使用 `uv.lock` 固定依赖。英文依赖固定到上游提交 `47590ad4eab5838cdcfec94f8a53ebfe70ebe330`。下面的完整安装命令在 WSL2 / Linux 执行：
+Python 3.11+，使用 `uv.lock` 固定依赖。英文依赖固定到上游 v0.4.1，提交 `1c034849fb36a104dadb1ddf967abcfe5bbd99b7`。这一版带上共享关系的实体链接、非法切分参数拒绝，以及 Milvus 强一致统计；不改变英文检索算法。下面的完整安装命令在 WSL2 / Linux 执行：
 
 ```bash
 uv sync --locked --extra english --extra api --extra documents --extra test

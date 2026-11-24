@@ -2696,8 +2696,8 @@ wheels = [
 
 [[package]]
 name = "vector-graph-rag"
-version = "0.4.0"
-source = { git = "https://github.com/zilliztech/vector-graph-rag.git?rev=47590ad4eab5838cdcfec94f8a53ebfe70ebe330#47590ad4eab5838cdcfec94f8a53ebfe70ebe330" }
+version = "0.4.1"
+source = { git = "https://github.com/zilliztech/vector-graph-rag.git?rev=1c034849fb36a104dadb1ddf967abcfe5bbd99b7#1c034849fb36a104dadb1ddf967abcfe5bbd99b7" }
 dependencies = [
     { name = "httpx" },
     { name = "langchain-core" },
@@ -2784,9 +2784,9 @@ requires-dist = [
     { name = "reportlab", marker = "extra == 'test'", specifier = ">=4,<5" },
     { name = "tokenizers", marker = "extra == 'tokenizer'", specifier = ">=0.20,<1" },
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.30,<1" },
-    { name = "vector-graph-rag", marker = "extra == 'english'", git = "https://github.com/zilliztech/vector-graph-rag.git?rev=47590ad4eab5838cdcfec94f8a53ebfe70ebe330" },
-    { name = "vector-graph-rag", marker = "extra == 'jev'", git = "https://github.com/zilliztech/vector-graph-rag.git?rev=47590ad4eab5838cdcfec94f8a53ebfe70ebe330" },
-    { name = "vector-graph-rag", extras = ["onnx"], marker = "extra == 'onnx'", git = "https://github.com/zilliztech/vector-graph-rag.git?rev=47590ad4eab5838cdcfec94f8a53ebfe70ebe330" },
+    { name = "vector-graph-rag", marker = "extra == 'english'", git = "https://github.com/zilliztech/vector-graph-rag.git?rev=1c034849fb36a104dadb1ddf967abcfe5bbd99b7" },
+    { name = "vector-graph-rag", marker = "extra == 'jev'", git = "https://github.com/zilliztech/vector-graph-rag.git?rev=1c034849fb36a104dadb1ddf967abcfe5bbd99b7" },
+    { name = "vector-graph-rag", extras = ["onnx"], marker = "extra == 'onnx'", git = "https://github.com/zilliztech/vector-graph-rag.git?rev=1c034849fb36a104dadb1ddf967abcfe5bbd99b7" },
 ]
 provides-extras = ["api", "english", "jev", "milvus", "documents", "tokenizer", "onnx", "evaluation", "test"]
 

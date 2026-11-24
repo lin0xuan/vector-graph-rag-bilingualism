@@ -2,7 +2,7 @@
 from dataclasses import asdict, dataclass, field
 from .models import digest
 
-UPSTREAM_COMMIT = "47590ad4eab5838cdcfec94f8a53ebfe70ebe330"
+UPSTREAM_COMMIT = "1c034849fb36a104dadb1ddf967abcfe5bbd99b7"
 PIPELINE_VERSION = "coverage-v3"
 
 

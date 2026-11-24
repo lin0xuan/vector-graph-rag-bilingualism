@@ -15,7 +15,7 @@
 
 英文从首版起就通过固定版本的 Zilliz 上游调用 Jev；首版中文没有 Jev，`two-stage` 只是“生成式关系筛选 + 原文选证”，不能将这个模式名理解成已经使用 Jev。
 
-现在中文新增 `src/vector_graph_rag_bilingualism/jev.py`，复用固定上游提交 `47590ad4eab5838cdcfec94f8a53ebfe70ebe330` 的 `JevReranker`，通过真实 `/systemone` 协议读取 `noul` 分数：
+现在中文新增 `src/vector_graph_rag_bilingualism/jev.py`，复用固定上游提交 `1c034849fb36a104dadb1ddf967abcfe5bbd99b7` 的 `JevReranker`，通过真实 `/systemone` 协议读取 `noul` 分数：
 
 - 关系阶段：用问题和候选关系共享上下文给关系评分，排序后参与图通道融合；替代生成式关系筛选。
 - 原文阶段：给融合后的候选原文评分，再进行中文问点选证和回答。每批最多 16 段，保留全部候选，不把 100 个候选静默截为 16 个。
@@ -23,7 +23,7 @@
 - 中文保留自己的候选池和问点覆盖策略。因此这不是逐行复制英文的“最多 16 个合并候选”配方；跨批共享上下文不同，中文效果要独立评估。
 - `single-stage` 跳过关系评分，仍可使用 Jev 原文评分；中文 Jev 双阶段配置应使用 `two-stage`（默认）。
 
-上游代码依据：[Jev 两阶段实现](https://github.com/zilliztech/vector-graph-rag/blob/47590ad4eab5838cdcfec94f8a53ebfe70ebe330/src/vector_graph_rag/llm/jev.py)、[RAG 调用位置](https://github.com/zilliztech/vector-graph-rag/blob/47590ad4eab5838cdcfec94f8a53ebfe70ebe330/src/vector_graph_rag/rag.py)。
+上游代码依据：[Jev 两阶段实现](https://github.com/zilliztech/vector-graph-rag/blob/1c034849fb36a104dadb1ddf967abcfe5bbd99b7/src/vector_graph_rag/llm/jev.py)、[RAG 调用位置](https://github.com/zilliztech/vector-graph-rag/blob/1c034849fb36a104dadb1ddf967abcfe5bbd99b7/src/vector_graph_rag/rag.py)。
 
 ## 启用
 
